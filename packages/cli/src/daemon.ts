@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Agent } from "@miniclaw/agent";
@@ -16,6 +17,8 @@ import {
 } from "@miniclaw/gateway";
 import { SqliteStore } from "@miniclaw/memory-sqlite";
 import { createSessionsSkills } from "@miniclaw/skills-sessions";
+import { createCronSkills } from "@miniclaw/skills-cron";
+import { createCanvasSkills, CanvasStore } from "@miniclaw/skills-canvas";
 import { DiscordTransport } from "@miniclaw/transport-discord";
 import type { Transport } from "@miniclaw/core";
 
@@ -23,7 +26,10 @@ import { buildLLM } from "./llm.ts";
 import { buildRegistry } from "./skills.ts";
 import type { Config } from "./config.ts";
 
-const HERE = fileURLToPath(import.meta.url);
+// Spawn the daemon child by re-entering the CLI's main entry point so its
+// argv dispatch in main.ts routes to `daemon run`. Pointing at daemon.ts
+// directly would just import this module and exit — no top-level handler.
+const ENTRY = resolve(dirname(fileURLToPath(import.meta.url)), "index.ts");
 
 export async function runDaemon(
   action: "run" | "start" | "stop" | "status",
@@ -71,7 +77,7 @@ export async function runDaemon(
       // we surface the cleanup here so the user knows.
       process.stdout.write(`removing stale socket ${socketPath}\n`);
     }
-    const child = spawn(process.execPath, [...process.execArgv, HERE, "daemon", "run"], {
+    const child = spawn(process.execPath, [...process.execArgv, ENTRY, "daemon", "run"], {
       detached: true,
       stdio: "ignore",
       env: process.env,
@@ -144,6 +150,19 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
   const handle = startSocketDaemon({
     gateway,
     socketPath,
+    controls: {
+      status: (sessionId, channel, conversationId) => ({
+        provider: config.provider,
+        model: config.model,
+        store: config.dbPath,
+        session: sessionId,
+        channel,
+        conversation: String(conversationId),
+        workspace: config.workspaceRoot,
+        skills: String(registry.list().length),
+      }),
+      usage: () => store.auditUsage(),
+    },
     onShutdown: async () => {
       cron.stop();
       for (const t of transports) {

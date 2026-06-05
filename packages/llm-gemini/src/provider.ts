@@ -8,6 +8,7 @@ import type {
   ToolSpec,
 } from "@miniclaw/core";
 import { toGeminiContentsAll } from "./mapping.ts";
+import { sanitizeForGemini } from "./schema.ts";
 
 // Structural subset of the SDK we touch. The real client returns rich
 // objects; tests inject a fake whose generateContent and generateContentStream
@@ -72,7 +73,10 @@ export class GeminiProvider implements LLMProvider {
               functionDeclarations: opts.tools.map((t) => ({
                 name: t.name,
                 description: t.description,
-                parameters: t.inputSchema as Record<string, unknown>,
+                // Gemini rejects JSON-Schema draft-7 fields zod emits
+                // (additionalProperties, exclusiveMinimum, …). Strip them
+                // down to Gemini's OpenAPI 3.0 subset before sending.
+                parameters: sanitizeForGemini(t.inputSchema) as Record<string, unknown>,
               })),
             },
           ]

@@ -10,3 +10,4 @@ export {
   type GeminiContent,
   type GeminiPart,
 } from "./mapping.ts";
+export { sanitizeForGemini } from "./schema.ts";

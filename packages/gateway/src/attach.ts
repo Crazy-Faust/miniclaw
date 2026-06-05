@@ -91,6 +91,38 @@ export async function socketAttachIO(opts: SocketAttachOpts): Promise<void> {
       }
       return;
     }
+    if (type === "status") {
+      const fields = (msg.fields ?? {}) as Record<string, string>;
+      for (const [k, v] of Object.entries(fields)) {
+        output.write(`  ${k.padEnd(14)} ${v}\n`);
+      }
+      if (waiter) {
+        waiter.resolve();
+        waiter = null;
+      }
+      return;
+    }
+    if (type === "usage") {
+      const rollup = msg.rollup as {
+        total: number;
+        ok: number;
+        failed: number;
+        bySkill: Array<{ skill: string; count: number }>;
+      } | null;
+      if (!rollup) {
+        output.write("  (no usage data)\n");
+      } else {
+        output.write(`  total ${rollup.total} (ok ${rollup.ok}, failed ${rollup.failed})\n`);
+        for (const row of rollup.bySkill) {
+          output.write(`  ${row.skill.padEnd(20)} ${row.count}\n`);
+        }
+      }
+      if (waiter) {
+        waiter.resolve();
+        waiter = null;
+      }
+      return;
+    }
   }
 
   try {
@@ -104,6 +136,16 @@ export async function socketAttachIO(opts: SocketAttachOpts): Promise<void> {
       const trimmed = line.trim();
       if (trimmed.length === 0) continue;
       if (trimmed === "/exit" || trimmed === "/quit") break;
+      const ctl = trimmed === "/status" ? "status" : trimmed === "/usage" ? "usage" : null;
+      if (ctl) {
+        socket.write(JSON.stringify({ type: ctl }) + "\n");
+        await new Promise<void>((resolve, reject) => {
+          waiter = { resolve, reject };
+        }).catch((err: Error) => {
+          output.write(`(${err.message})\n`);
+        });
+        continue;
+      }
       socket.write(JSON.stringify({ type: "user", text: trimmed }) + "\n");
       await new Promise<void>((resolve, reject) => {
         waiter = { resolve, reject };

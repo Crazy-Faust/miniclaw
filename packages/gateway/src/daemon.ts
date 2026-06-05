@@ -2,10 +2,24 @@ import { createServer, type Server, type Socket } from "node:net";
 import { existsSync, rmSync } from "node:fs";
 import type { Gateway } from "./gateway.ts";
 
+export interface SocketDaemonControls {
+  /** Per-attached-session status fields (label → value). */
+  status(sessionId: string, channel: string, conversationId: number): Record<string, string>;
+  /** Aggregate tool-call usage from the audit log. */
+  usage(): {
+    total: number;
+    ok: number;
+    failed: number;
+    bySkill: Array<{ skill: string; count: number }>;
+  };
+}
+
 export interface SocketDaemonOpts {
   gateway: Gateway;
   /** Path to the Unix domain socket. */
   socketPath: string;
+  /** Lets attached clients answer their own /status and /usage commands. */
+  controls?: SocketDaemonControls;
   /** Optional shutdown hook called after the server stops. */
   onShutdown?: () => void | Promise<void>;
 }
@@ -35,7 +49,7 @@ export function startSocketDaemon(opts: SocketDaemonOpts): SocketDaemonHandle {
   if (existsSync(opts.socketPath)) {
     rmSync(opts.socketPath, { force: true });
   }
-  const server = createServer((socket) => handleClient(socket, opts.gateway));
+  const server = createServer((socket) => handleClient(socket, opts.gateway, opts.controls));
   server.listen(opts.socketPath);
 
   const stop = async (): Promise<void> => {
@@ -47,9 +61,10 @@ export function startSocketDaemon(opts: SocketDaemonOpts): SocketDaemonHandle {
   return { server, stop };
 }
 
-function handleClient(socket: Socket, gateway: Gateway): void {
+function handleClient(socket: Socket, gateway: Gateway, controls?: SocketDaemonControls): void {
   let buffer = "";
   let session: ReturnType<Gateway["attach"]> | null = null;
+  let channel = "";
 
   const send = (event: Record<string, unknown>): void => {
     if (socket.writable) socket.write(JSON.stringify(event) + "\n");
@@ -79,11 +94,12 @@ function handleClient(socket: Socket, gateway: Gateway): void {
   async function dispatch(msg: Record<string, unknown>): Promise<void> {
     const type = String(msg.type ?? "");
     if (type === "attach") {
-      const channel = String(msg.channel ?? "");
-      if (!channel) {
+      const ch = String(msg.channel ?? "");
+      if (!ch) {
         send({ type: "error", message: "attach requires 'channel'" });
         return;
       }
+      channel = ch;
       session = gateway.attach(channel);
       send({ type: "attached", sessionId: session.record.id, channel });
       return;
@@ -110,6 +126,18 @@ function handleClient(socket: Socket, gateway: Gateway): void {
       } catch (err) {
         send({ type: "error", message: (err as Error).message });
       }
+      return;
+    }
+    if (type === "status") {
+      const fields = controls
+        ? controls.status(session.record.id, channel, session.record.conversationId)
+        : { session: session.record.id, channel, conversation: String(session.record.conversationId) };
+      send({ type: "status", fields });
+      return;
+    }
+    if (type === "usage") {
+      const rollup = controls?.usage() ?? { total: 0, ok: 0, failed: 0, bySkill: [] };
+      send({ type: "usage", rollup });
       return;
     }
     if (type === "end") {

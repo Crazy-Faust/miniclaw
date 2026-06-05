@@ -15,5 +15,9 @@
   "dependencies": {
     "@google/genai": "^0.7.0",
     "@miniclaw/core": "workspace:*"
+  },
+  "devDependencies": {
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.23.0"
   }
 }
