@@ -125,6 +125,13 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
   for (const sk of createSessionsSkills(gateway)) {
     if (!registry.has(sk.name)) registry.register(sk);
   }
+  for (const sk of createCronSkills(store)) {
+    if (!registry.has(sk.name)) registry.register(sk);
+  }
+  const canvasStore = new CanvasStore();
+  for (const sk of createCanvasSkills({ store: canvasStore })) {
+    if (!registry.has(sk.name)) registry.register(sk);
+  }
 
   const cron = new CronScheduler({ store, gateway });
   cron.start();

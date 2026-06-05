@@ -1,5 +1,5 @@
 import { writeFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -7,7 +7,10 @@ import { launchdPlist, systemdUnit } from "@miniclaw/gateway";
 
 import type { Config } from "./config.ts";
 
-const HERE = fileURLToPath(import.meta.url);
+// Point the installed service file at the CLI's main entry (index.ts).
+// Pointing at install.ts would just re-import the install module on every
+// service start — `main()` lives in index.ts.
+const ENTRY = resolve(dirname(fileURLToPath(import.meta.url)), "index.ts");
 
 // Writes a launchd plist or systemd user unit to its conventional path
 // — but never *loads* it. Loading requires `launchctl load` / `systemctl
@@ -16,11 +19,11 @@ const HERE = fileURLToPath(import.meta.url);
 export function runInstall(target: "launchd" | "systemd", config: Config): void {
   const tmpl = target === "launchd"
     ? launchdPlist(
-        { exec: process.execPath, args: [HERE, "daemon", "run"], home: config.home, env: subsetEnv() },
+        { exec: process.execPath, args: [ENTRY, "daemon", "run"], home: config.home, env: subsetEnv() },
         homedir(),
       )
     : systemdUnit(
-        { exec: process.execPath, args: [HERE, "daemon", "run"], home: config.home, env: subsetEnv() },
+        { exec: process.execPath, args: [ENTRY, "daemon", "run"], home: config.home, env: subsetEnv() },
         homedir(),
       );
 
