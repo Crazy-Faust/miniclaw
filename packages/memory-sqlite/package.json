@@ -1,0 +1,19 @@
+{
+  "name": "@miniclaw/memory-sqlite",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SQLite + FTS5 implementation of MemoryStore, ConversationStore, and AuditSink.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@miniclaw/core": "workspace:*",
+    "better-sqlite3": "^12.10.0"
+  }
+}

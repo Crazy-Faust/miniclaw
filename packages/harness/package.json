@@ -1,0 +1,24 @@
+{
+  "name": "@miniclaw/harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Session loop. Owns 'read line → dispatch meta command → run agent turn → write reply'. I/O is plugged in via an IOAdapter so the loop is reusable for CLI, HTTP, or tests.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@miniclaw/agent": "workspace:*",
+    "@miniclaw/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@miniclaw/context-windowed": "workspace:*",
+    "@miniclaw/memory-sqlite": "workspace:*",
+    "@miniclaw/skills-memory": "workspace:*"
+  }
+}

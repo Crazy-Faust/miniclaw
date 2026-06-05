@@ -1,0 +1,18 @@
+{
+  "name": "@miniclaw/memory-vector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Embedding-based MemoryStore. Cosine-similarity search behind the same interface as memory-sqlite / memory-inmemory.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@miniclaw/core": "workspace:*"
+  }
+}

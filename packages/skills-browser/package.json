@@ -1,0 +1,25 @@
+{
+  "name": "@miniclaw/skills-browser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "browser_open, browser_read_page, browser_screenshot, browser_click, browser_fill — Playwright-backed but lazy-loaded. The driver is pluggable so tests inject a fake.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@miniclaw/core": "workspace:*",
+    "zod": "^3.23.8"
+  },
+  "peerDependencies": {
+    "playwright": "*"
+  },
+  "peerDependenciesMeta": {
+    "playwright": { "optional": true }
+  }
+}

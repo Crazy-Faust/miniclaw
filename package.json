@@ -1,0 +1,26 @@
+{
+  "name": "miniclaw",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mini Open-Claw: a lightweight, local-first AI agent with swappable LLM, skills, memory, and context layers.",
+  "type": "module",
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "dev": "pnpm --filter @miniclaw/cli dev",
+    "start": "pnpm --filter @miniclaw/cli start",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  }
+}

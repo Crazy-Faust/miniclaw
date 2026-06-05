@@ -1,0 +1,42 @@
+{
+  "name": "@miniclaw/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "REPL entry point. The only package that imports concrete implementations of all interfaces.",
+  "bin": {
+    "miniclaw": "./src/index.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@miniclaw/agent": "workspace:*",
+    "@miniclaw/context-windowed": "workspace:*",
+    "@miniclaw/core": "workspace:*",
+    "@miniclaw/harness": "workspace:*",
+    "@miniclaw/context-stateless": "workspace:*",
+    "@miniclaw/llm-anthropic": "workspace:*",
+    "@miniclaw/llm-gemini": "workspace:*",
+    "@miniclaw/llm-openai": "workspace:*",
+    "@miniclaw/memory-inmemory": "workspace:*",
+    "@miniclaw/memory-sqlite": "workspace:*",
+    "@miniclaw/gateway": "workspace:*",
+    "@miniclaw/skills-db": "workspace:*",
+    "@miniclaw/skills-fs": "workspace:*",
+    "@miniclaw/skills-canvas": "workspace:*",
+    "@miniclaw/skills-cron": "workspace:*",
+    "@miniclaw/skills-memory": "workspace:*",
+    "@miniclaw/skills-sessions": "workspace:*",
+    "@miniclaw/skills-shell": "workspace:*",
+    "@miniclaw/skills-web": "workspace:*",
+    "@miniclaw/transport-discord": "workspace:*",
+    "dotenv": "^16.4.5"
+  }
+}

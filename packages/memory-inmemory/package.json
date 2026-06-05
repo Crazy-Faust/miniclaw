@@ -1,0 +1,18 @@
+{
+  "name": "@miniclaw/memory-inmemory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "In-memory implementation of MemoryStore, ConversationStore, and AuditSink. No persistence — useful for tests and ephemeral runs.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@miniclaw/core": "workspace:*"
+  }
+}

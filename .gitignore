@@ -1,0 +1,58 @@
+# --- Dependencies ---
+node_modules/
+
+# --- Build output ---
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# --- Test / coverage ---
+coverage/
+.nyc_output/
+.vitest-cache/
+
+# --- Env (keep the template) ---
+.env
+.env.*
+!.env.example
+
+# --- Logs ---
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# --- Caches ---
+.cache/
+.eslintcache
+
+# --- OS ---
+.DS_Store
+._*
+Thumbs.db
+
+# --- Editors / IDEs ---
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- Playwright (optional skill) ---
+test-results/
+playwright-report/
+playwright/.cache/
+
+# --- miniclaw local state (if MINICLAW_HOME points into the repo) ---
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+.miniclaw/
+
+# --- Claude Code (user-private) ---
+.claude/settings.local.json
+
+# --- Misc ---
+.Rhistory

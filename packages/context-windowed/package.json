@@ -1,0 +1,22 @@
+{
+  "name": "@miniclaw/context-windowed",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Sliding-window ContextManager that injects retrieved memories into the system prompt.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@miniclaw/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@miniclaw/memory-inmemory": "workspace:*",
+    "@miniclaw/memory-sqlite": "workspace:*"
+  }
+}

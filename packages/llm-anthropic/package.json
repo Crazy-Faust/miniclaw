@@ -1,0 +1,19 @@
+{
+  "name": "@miniclaw/llm-anthropic",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Anthropic Claude implementation of LLMProvider.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "@miniclaw/core": "workspace:*"
+  }
+}

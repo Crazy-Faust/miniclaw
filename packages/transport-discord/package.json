@@ -1,0 +1,29 @@
+{
+  "name": "@miniclaw/transport-discord",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Discord bot transport. Maps each DM sender to a gateway session, gated by per-channel allowlist with pairing-code onboarding.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@miniclaw/core": "workspace:*",
+    "@miniclaw/gateway": "workspace:*"
+  },
+  "devDependencies": {
+    "@miniclaw/agent": "workspace:*",
+    "@miniclaw/memory-inmemory": "workspace:*"
+  },
+  "peerDependencies": {
+    "discord.js": "^14.0.0"
+  },
+  "peerDependenciesMeta": {
+    "discord.js": { "optional": true }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@miniclaw/llm-openai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenAI Chat Completions implementation of LLMProvider. baseURL is configurable so this also serves OpenAI-compatible servers (Ollama, LM Studio, vLLM, etc.).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@miniclaw/core": "workspace:*",
+    "openai": "^4.67.0"
+  }
+}

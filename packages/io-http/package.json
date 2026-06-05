@@ -1,0 +1,22 @@
+{
+  "name": "@miniclaw/io-http",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "HTTP + Server-Sent-Events transport for the agent. POST /chat streams token deltas, tool calls, and the final answer as SSE events.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@miniclaw/agent": "workspace:*",
+    "@miniclaw/core": "workspace:*"
+  },
+  "devDependencies": {
+    "zod": "^3.23.8"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@miniclaw/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tool-using agent loop. Depends on @miniclaw/core ONLY — composes via interfaces.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@miniclaw/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@miniclaw/context-windowed": "workspace:*",
+    "@miniclaw/memory-sqlite": "workspace:*",
+    "@miniclaw/skills-db": "workspace:*",
+    "@miniclaw/skills-memory": "workspace:*",
+    "@miniclaw/skills-shell": "workspace:*",
+    "better-sqlite3": "^12.10.0",
+    "zod": "^3.23.8"
+  }
+}
