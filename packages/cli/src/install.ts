@@ -1,4 +1,4 @@
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -29,6 +29,9 @@ export function runInstall(target: "launchd" | "systemd", config: Config): void 
 
   mkdirSync(dirname(tmpl.destPath), { recursive: true });
   writeFileSync(tmpl.destPath, tmpl.contents, "utf8");
+  // VULN-02: Restrict service file permissions to owner-only (0600).
+  // These files contain API keys in plaintext environment blocks.
+  try { chmodSync(tmpl.destPath, 0o600); } catch { /* best-effort */ }
   process.stdout.write(tmpl.instructions + "\n");
 }
 

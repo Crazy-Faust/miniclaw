@@ -24,6 +24,13 @@ export interface SkillContext {
    * it (line buffering, ANSI handling, etc.).
    */
   onStream?: (kind: "stdout" | "stderr", chunk: string) => void;
+  /**
+   * VULN-14: Logical channel the calling session is on (e.g. 'cli',
+   * 'discord:dm:123'). Skills like sessions_send use this to scope
+   * cross-session access. Unset in single-user CLI mode — skills treat
+   * absence as "no restriction" for backward compatibility.
+   */
+  channel?: string;
 }
 
 export interface ToolResult {

@@ -57,11 +57,25 @@ export function createSessionsSkills(gateway: Gateway): Skill<unknown>[] {
     description:
       "Send a message to another session as if you were that channel's user. " +
       "Use this to coordinate with a long-running agent on a different channel; the " +
-      "remote session runs one turn and returns its final answer.",
+      "remote session runs one turn and returns its final answer. " +
+      "The calling session and target session must share the same channel prefix " +
+      "(e.g. both 'cli' or both 'discord:dm:...').",
     parameters: SendParams,
-    async execute(args) {
+    async execute(args, ctx) {
       const rec = gateway.list(500).find((s) => s.id === args.sessionId);
       if (!rec) return fail(`unknown session: ${args.sessionId}`);
+      // VULN-14: Ownership check — the calling session and target session
+      // must share the same channel (or at minimum the same transport prefix).
+      // In single-user CLI mode, ctx.channel is typically undefined so we
+      // allow the call (backward-compat). In multi-user daemon mode,
+      // ctx.channel is set by the transport.
+      const callerChannel = ctx.channel;
+      if (callerChannel && rec.channel !== callerChannel) {
+        return fail(
+          `refused: session ${args.sessionId} belongs to channel '${rec.channel}', ` +
+          `but you are on channel '${callerChannel}'`,
+        );
+      }
       const session = gateway.attach(rec.channel);
       const trace = await session.send(args.message);
       return ok(trace.finalText);

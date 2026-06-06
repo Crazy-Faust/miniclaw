@@ -1,9 +1,10 @@
 import { createServer, type Server, type Socket } from "node:net";
-import { existsSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, rmSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import type { Gateway } from "./gateway.ts";
 
 export interface SocketDaemonControls {
-  /** Per-attached-session status fields (label → value). */
+  /** Per-attached-session status fields (label -> value). */
   status(sessionId: string, channel: string, conversationId: number): Record<string, string>;
   /** Aggregate tool-call usage from the audit log. */
   usage(): {
@@ -34,8 +35,8 @@ export interface SocketDaemonHandle {
  * first message must be { "type": "attach", "channel": "..." }. After
  * that the server accepts:
  *
- *   { type: "user",  text: "..." }      → run one agent turn
- *   { type: "end" }                     → end the session and disconnect
+ *   { type: "user",  text: "..." }      -> run one agent turn
+ *   { type: "end" }                     -> end the session and disconnect
  *
  * The server emits, for each turn:
  *
@@ -49,8 +50,18 @@ export function startSocketDaemon(opts: SocketDaemonOpts): SocketDaemonHandle {
   if (existsSync(opts.socketPath)) {
     rmSync(opts.socketPath, { force: true });
   }
+
+  // VULN-13: Ensure the enclosing directory has restrictive permissions
+  // (0700) so other users on shared machines cannot connect.
+  const socketDir = dirname(opts.socketPath);
+  mkdirSync(socketDir, { recursive: true, mode: 0o700 });
+  try { chmodSync(socketDir, 0o700); } catch { /* best-effort on existing dirs */ }
+
   const server = createServer((socket) => handleClient(socket, opts.gateway, opts.controls));
-  server.listen(opts.socketPath);
+  server.listen(opts.socketPath, () => {
+    // VULN-13: Set socket file permissions to owner-only after binding.
+    try { chmodSync(opts.socketPath, 0o600); } catch { /* best-effort */ }
+  });
 
   const stop = async (): Promise<void> => {
     await new Promise<void>((resolve) => server.close(() => resolve()));

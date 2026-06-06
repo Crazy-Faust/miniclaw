@@ -250,6 +250,9 @@ importers:
       '@miniclaw/core':
         specifier: workspace:*
         version: link:../core
+      '@miniclaw/skills-fs':
+        specifier: workspace:*
+        version: link:../skills-fs
       playwright:
         specifier: '*'
         version: 1.60.0
