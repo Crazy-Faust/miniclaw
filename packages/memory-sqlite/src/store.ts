@@ -345,7 +345,7 @@ export class SqliteStore
 
   // ---- PairingStore ----
 
-  mintPairing(channel: string, ttlMs = 10 * 60_000): PairingRecord {
+  mintPairing(channel: string, ttlMs = 120 * 60_000): PairingRecord {
     // Invalidate any prior unredeemed code for this channel so the new
     // one is the only valid token.
     this.db.prepare("DELETE FROM pairing_codes WHERE channel = ?").run(channel);
