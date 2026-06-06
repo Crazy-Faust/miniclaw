@@ -21,6 +21,7 @@
     "@miniclaw/skills-db": "workspace:*",
     "@miniclaw/skills-memory": "workspace:*",
     "@miniclaw/skills-shell": "workspace:*",
+    "@miniclaw/skills-todo": "workspace:*",
     "better-sqlite3": "^12.10.0",
     "zod": "^3.23.8"
   }
