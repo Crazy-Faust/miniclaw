@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { readFileSync } from "node:fs";
+import { chmodSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -43,6 +43,16 @@ export class SqliteStore
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
     this.db.exec(SCHEMA);
+
+    // VULN-15: Restrict database file permissions to owner-only (0600).
+    // The DB may contain conversation history, memories, API keys the user
+    // asked to remember, and pairing codes. Skip for in-memory DBs.
+    if (dbPath !== ":memory:" && !dbPath.startsWith(":")) {
+      try { chmodSync(dbPath, 0o600); } catch { /* best-effort — tests use tmpdir */ }
+      // WAL mode creates -wal and -shm sidecar files; restrict them too.
+      try { chmodSync(dbPath + "-wal", 0o600); } catch { /* may not exist yet */ }
+      try { chmodSync(dbPath + "-shm", 0o600); } catch { /* may not exist yet */ }
+    }
   }
 
   // ---- MemoryStore ----

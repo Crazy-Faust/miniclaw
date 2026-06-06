@@ -37,19 +37,30 @@ function buildAgent(llm: LLMProvider) {
   });
 }
 
+// Shared token for tests that don't care about auth behavior
+const TEST_TOKEN = "test-token";
+
 interface RunningServer {
   url: string;
   close(): Promise<void>;
 }
 
 async function start(agent: Agent, opts: { bearerToken?: string } = {}): Promise<RunningServer> {
-  const server = createHttpServer({ agent, bearerToken: opts.bearerToken });
+  // Silence the generated-token log in test output
+  const origWrite = process.stderr.write;
+  process.stderr.write = (() => true) as any;
+  const server = createHttpServer({ agent, bearerToken: opts.bearerToken ?? TEST_TOKEN });
+  process.stderr.write = origWrite;
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const addr = server.address() as AddressInfo;
   return {
     url: `http://127.0.0.1:${addr.port}`,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
+}
+
+function authHeaders(token = TEST_TOKEN): Record<string, string> {
+  return { authorization: `Bearer ${token}` };
 }
 
 interface ParsedEvent { event: string; data: unknown }
@@ -85,7 +96,7 @@ describe("createHttpServer — wire-level integration", () => {
 
   it("GET /healthz returns plain text 'ok'", async () => {
     running = await start(buildAgent(new StreamingLLM([])));
-    const res = await fetch(`${running.url}/healthz`);
+    const res = await fetch(`${running.url}/healthz`, { headers: authHeaders() });
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("ok");
   });
@@ -97,7 +108,7 @@ describe("createHttpServer — wire-level integration", () => {
     running = await start(agent);
     const res = await fetch(`${running.url}/chat`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...authHeaders() },
       body: JSON.stringify({ message: "hi" }),
     });
     expect(res.status).toBe(200);
@@ -113,7 +124,7 @@ describe("createHttpServer — wire-level integration", () => {
     running = await start(buildAgent(new StreamingLLM([])));
     const res = await fetch(`${running.url}/chat`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...authHeaders() },
       body: "{this is not json",
     });
     expect(res.status).toBe(400);
@@ -125,7 +136,7 @@ describe("createHttpServer — wire-level integration", () => {
     running = await start(buildAgent(new StreamingLLM([])));
     const res = await fetch(`${running.url}/chat`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...authHeaders() },
       body: JSON.stringify({ message: "" }),
     });
     expect(res.status).toBe(400);
@@ -133,7 +144,7 @@ describe("createHttpServer — wire-level integration", () => {
 
   it("unknown routes return 404", async () => {
     running = await start(buildAgent(new StreamingLLM([])));
-    const res = await fetch(`${running.url}/nope`);
+    const res = await fetch(`${running.url}/nope`, { headers: authHeaders() });
     expect(res.status).toBe(404);
   });
 

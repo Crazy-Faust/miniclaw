@@ -1,6 +1,7 @@
 import { resolve, isAbsolute, join } from "node:path";
 import { z } from "zod";
 import { fail, ok, type Skill } from "@miniclaw/core";
+import { resolveInsideWorkspace } from "@miniclaw/skills-fs";
 import type { BrowserDriver, DriverFactory } from "./driver.ts";
 import { playwrightDriverFactory } from "./playwright-driver.ts";
 
@@ -92,10 +93,23 @@ export function createBrowserSkills(opts: BrowserSkillOpts = {}): Skill<unknown>
     description: "Save a PNG screenshot of the current page to disk.",
     parameters: ScreenshotParams,
     async execute(args, ctx) {
-      const target = isAbsolute(args.path) ? args.path : resolve(ctx.workspaceRoot ?? process.cwd(), args.path);
-      if (ctx.workspaceRoot && !target.startsWith(resolve(ctx.workspaceRoot) + "/") && target !== resolve(ctx.workspaceRoot)) {
-        return fail(`refused: ${args.path} resolves outside the workspace sandbox`);
+      // VULN-16: Use resolveInsideWorkspace for proper path validation
+      // including symlink resolution, NUL-byte checks, and macOS /var alias.
+      if (ctx.workspaceRoot) {
+        const check = resolveInsideWorkspace(args.path, ctx.workspaceRoot);
+        if (!check.ok) {
+          return fail(`refused: ${check.reason}`);
+        }
+        try {
+          const d = await ensureDriver(ctx.workspaceRoot);
+          await d.screenshot(check.resolvedPath);
+          return ok(`saved ${check.resolvedPath}`);
+        } catch (err) {
+          return fail((err as Error).message);
+        }
       }
+      // No workspace root — fall back to plain resolve (legacy behavior)
+      const target = isAbsolute(args.path) ? args.path : resolve(process.cwd(), args.path);
       try {
         const d = await ensureDriver(ctx.workspaceRoot);
         await d.screenshot(target);
