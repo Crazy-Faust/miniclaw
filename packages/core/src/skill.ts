@@ -10,6 +10,8 @@ export interface SkillContext {
   memory: MemoryStore;
   audit: AuditSink;
   dbPath: string;
+  /** Logical session/channel id, e.g. "cli" or "discord:dm:<user-id>". */
+  channel?: string;
   /**
    * Optional filesystem sandbox root. Skills that touch the filesystem
    * (skills-fs, optionally skills-shell) refuse to operate on paths that

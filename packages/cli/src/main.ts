@@ -120,6 +120,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
     memory: store,
     audit: store,
     dbPath: ephemeral ? ":memory:" : config.dbPath,
+    channel: "cli",
     workspaceRoot: config.workspaceRoot,
     confirmTool: io.confirm
       ? async (call, skill) => {

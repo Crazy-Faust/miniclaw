@@ -3,11 +3,39 @@ import { ok, fail, type CronStore, type Skill } from "@miniclaw/core";
 import { firstFireFromNow, parseSchedule } from "@miniclaw/gateway";
 
 /**
- * Build the four cron_* skills bound to a single CronStore. The
+ * Build the reminder/cron skills bound to a single CronStore. The
  * scheduler half (CronScheduler from @miniclaw/gateway) reads from the
  * same store on a tick to fire jobs.
  */
 export function createCronSkills(store: CronStore): Skill<unknown>[] {
+  const ReminderParams = z.object({
+    message: z.string().min(1).describe("What to remind the user about."),
+    delaySeconds: z
+      .number()
+      .int()
+      .min(1)
+      .max(31_536_000)
+      .describe("How many seconds from now the reminder should fire."),
+    name: z.string().min(1).max(80).default("reminder"),
+  });
+  const reminder: Skill<z.infer<typeof ReminderParams>> = {
+    name: "reminder_add",
+    description:
+      "Schedule a one-shot reminder for the current channel. Use this for requests like " +
+      "'remind me in 30 seconds' or 'remind me tomorrow to take out the trash'.",
+    parameters: ReminderParams,
+    execute(args, ctx) {
+      const nextRunAt = Date.now() + args.delaySeconds * 1000;
+      const prompt =
+        `Reminder due for the user: ${args.message}\n\n` +
+        `Reply with a concise reminder message only.`;
+      const rec = store.addCron(args.name, prompt, "@once", nextRunAt, ctx.channel ?? null);
+      return ok(
+        `scheduled reminder #${rec.id} (${rec.name}) for ${new Date(rec.nextRunAt).toISOString()}`,
+      );
+    },
+  };
+
   const AddParams = z.object({
     name: z.string().min(1).max(80).describe("Short label shown by cron_list."),
     prompt: z
@@ -25,7 +53,7 @@ export function createCronSkills(store: CronStore): Skill<unknown>[] {
       "Schedule a recurring prompt to run on a cadence. Returns the new job id. " +
       'Cadence syntax: "@every 30s", "@every 5m", "@every 1h", "@every 1d".',
     parameters: AddParams,
-    execute(args) {
+    execute(args, ctx) {
       try {
         // Validate the schedule before persisting so a typo doesn't leave a
         // dead job in the store the scheduler can't run.
@@ -33,7 +61,13 @@ export function createCronSkills(store: CronStore): Skill<unknown>[] {
       } catch (err) {
         return fail((err as Error).message);
       }
-      const rec = store.addCron(args.name, args.prompt, args.schedule, firstFireFromNow(args.schedule));
+      const rec = store.addCron(
+        args.name,
+        args.prompt,
+        args.schedule,
+        firstFireFromNow(args.schedule),
+        ctx.channel ?? null,
+      );
       return ok(
         `scheduled job #${rec.id} (${rec.name}) — next fire ${new Date(rec.nextRunAt).toISOString()}`,
       );
@@ -49,7 +83,7 @@ export function createCronSkills(store: CronStore): Skill<unknown>[] {
       if (rows.length === 0) return ok("(no cron jobs)");
       const lines = rows.map(
         (r) =>
-          `#${r.id} [${r.status}] ${r.name} — schedule=${r.schedule}, next=${new Date(
+          `#${r.id} [${r.status}] ${r.name} — channel=${r.channel ?? "(default)"}, schedule=${r.schedule}, next=${new Date(
             r.nextRunAt,
           ).toISOString()}, last=${
             r.lastRunAt > 0 ? new Date(r.lastRunAt).toISOString() : "(never)"
@@ -89,5 +123,5 @@ export function createCronSkills(store: CronStore): Skill<unknown>[] {
     },
   };
 
-  return [add, list, remove, pause] as Skill<unknown>[];
+  return [reminder, add, list, remove, pause] as Skill<unknown>[];
 }

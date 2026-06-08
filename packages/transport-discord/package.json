@@ -14,16 +14,11 @@
   },
   "dependencies": {
     "@miniclaw/core": "workspace:*",
-    "@miniclaw/gateway": "workspace:*"
+    "@miniclaw/gateway": "workspace:*",
+    "discord.js": "^14.26.4"
   },
   "devDependencies": {
     "@miniclaw/agent": "workspace:*",
     "@miniclaw/memory-inmemory": "workspace:*"
-  },
-  "peerDependencies": {
-    "discord.js": "^14.0.0"
-  },
-  "peerDependenciesMeta": {
-    "discord.js": { "optional": true }
   }
 }

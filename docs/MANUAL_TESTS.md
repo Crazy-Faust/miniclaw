@@ -385,7 +385,7 @@ cd / && rm -rf /tmp/miniclaw-test
 
 ---
 
-## H. Discord transport (3 tests, requires `pnpm add -w discord.js` + bot token)
+## H. Discord transport (4 tests, requires a bot token)
 
 ### H1. Daemon starts the transport
 
@@ -398,7 +398,7 @@ pnpm dev -- daemon run
 
 If you instead see `discord transport failed: ...`, the token is wrong or the bot has no enabled intents — fix and retry.
 
-**Proves:** Lazy `discord.js` import; connection succeeds.
+**Proves:** `discord.js` loads from workspace dependencies; connection succeeds.
 
 ---
 
@@ -456,6 +456,28 @@ pnpm dev -- daemon stop
 ```
 
 **Proves:** Full DM → gateway → agent → tools → reply round-trip.
+
+---
+
+### H4. Discord one-shot reminder
+
+Once paired, DM the bot:
+
+```
+remind me in 30 seconds to take out the trash
+```
+
+**Expect:** Bot confirms a scheduled reminder. Within ~45 seconds, the bot sends a new DM reminding you to take out the trash without another user message.
+
+Check the one-shot job was removed after firing:
+
+```bash
+sqlite3 ~/.miniclaw/miniclaw.db "select id, schedule, channel from cron_jobs where schedule='@once';"
+```
+
+**Expect:** No rows for the fired reminder.
+
+**Proves:** Discord DM channel is threaded through `SkillContext`, `reminder_add` stores `@once`, `CronScheduler` removes one-shot jobs, and the Discord transport delivers proactive results.
 
 ---
 

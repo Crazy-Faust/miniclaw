@@ -48,6 +48,13 @@ export class DiscordTransport implements Transport {
     this.started = false;
   }
 
+  async sendToChannel(channel: string, text: string): Promise<boolean> {
+    const prefix = "discord:dm:";
+    if (!channel.startsWith(prefix)) return false;
+    await this.safeSend(channel.slice(prefix.length), text);
+    return true;
+  }
+
   private async handleDM(msg: DirectMessage): Promise<void> {
     const channel = `discord:dm:${msg.userId}`;
 

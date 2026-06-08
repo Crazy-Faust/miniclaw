@@ -34,6 +34,8 @@ export interface AgentDeps {
   memory: MemoryStore;
   audit: AuditSink;
   dbPath: string;
+  /** Logical session/channel id threaded to skills via SkillContext. */
+  channel?: string;
   /** Workspace sandbox root threaded to every skill via SkillContext. */
   workspaceRoot?: string;
   /**
@@ -117,6 +119,7 @@ export class Agent {
       memory: this.deps.memory,
       audit: this.deps.audit,
       dbPath: this.deps.dbPath,
+      channel: this.deps.channel,
       workspaceRoot: this.deps.workspaceRoot,
     };
     const trace: TurnTrace = { toolCalls: [], finalText: "" };

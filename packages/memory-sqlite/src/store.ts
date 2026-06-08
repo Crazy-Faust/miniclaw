@@ -39,10 +39,22 @@ export class SqliteStore
 
   constructor(dbPath: string) {
     this.path = dbPath;
-    this.db = new Database(dbPath);
+    try {
+      this.db = new Database(dbPath);
+    } catch (err) {
+      throw new Error(sqliteNativeDependencyMessage(err));
+    }
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
     this.db.exec(SCHEMA);
+    this.migrate();
+  }
+
+  private migrate(): void {
+    const cronCols = this.db.pragma("table_info(cron_jobs)") as Array<{ name: string }>;
+    if (!cronCols.some((c) => c.name === "channel")) {
+      this.db.exec("ALTER TABLE cron_jobs ADD COLUMN channel TEXT");
+    }
   }
 
   // ---- MemoryStore ----
@@ -208,16 +220,23 @@ export class SqliteStore
 
   // ---- CronStore ----
 
-  addCron(name: string, prompt: string, schedule: string, nextRunAt: number): CronJobRecord {
+  addCron(
+    name: string,
+    prompt: string,
+    schedule: string,
+    nextRunAt: number,
+    channel: string | null = null,
+  ): CronJobRecord {
     const now = Date.now();
     const info = this.db
       .prepare(
-        `INSERT INTO cron_jobs(name, prompt, schedule, last_run_at, next_run_at, status, created_at)
-         VALUES (?, ?, ?, 0, ?, 'active', ?)`,
+        `INSERT INTO cron_jobs(channel, name, prompt, schedule, last_run_at, next_run_at, status, created_at)
+         VALUES (?, ?, ?, ?, 0, ?, 'active', ?)`,
       )
-      .run(name, prompt, schedule, nextRunAt, now);
+      .run(channel, name, prompt, schedule, nextRunAt, now);
     return {
       id: Number(info.lastInsertRowid),
+      channel,
       name,
       prompt,
       schedule,
@@ -231,7 +250,7 @@ export class SqliteStore
   listCron(): CronJobRecord[] {
     return this.db
       .prepare(
-        `SELECT id, name, prompt, schedule, last_run_at AS lastRunAt,
+        `SELECT id, channel, name, prompt, schedule, last_run_at AS lastRunAt,
                 next_run_at AS nextRunAt, status, created_at AS createdAt
          FROM cron_jobs ORDER BY id ASC`,
       )
@@ -241,7 +260,7 @@ export class SqliteStore
   getCron(id: number): CronJobRecord | null {
     const row = this.db
       .prepare(
-        `SELECT id, name, prompt, schedule, last_run_at AS lastRunAt,
+        `SELECT id, channel, name, prompt, schedule, last_run_at AS lastRunAt,
                 next_run_at AS nextRunAt, status, created_at AS createdAt
          FROM cron_jobs WHERE id = ?`,
       )
@@ -298,7 +317,7 @@ export class SqliteStore
   cronDueNow(now: number): CronJobRecord[] {
     return this.db
       .prepare(
-        `SELECT id, name, prompt, schedule, last_run_at AS lastRunAt,
+        `SELECT id, channel, name, prompt, schedule, last_run_at AS lastRunAt,
                 next_run_at AS nextRunAt, status, created_at AS createdAt
          FROM cron_jobs
          WHERE status = 'active' AND next_run_at <= ?
@@ -365,6 +384,24 @@ export class SqliteStore
   close(): void {
     this.db.close();
   }
+}
+
+function sqliteNativeDependencyMessage(err: unknown): string {
+  const msg = (err as Error).message ?? String(err);
+  if (
+    /Could not locate the bindings file|NODE_MODULE_VERSION|ERR_DLOPEN_FAILED|better_sqlite3\.node/i.test(
+      msg,
+    )
+  ) {
+    return (
+      "better-sqlite3 native binding is not usable for the current Node.js runtime. " +
+      "Run `pnpm install` from the repo root. If you recently changed Node versions, " +
+      "remove `node_modules` and run `pnpm install` again, or rebuild better-sqlite3 " +
+      "with the same `node` binary used by `pnpm dev`. Original error: " +
+      msg
+    );
+  }
+  return msg;
 }
 
 // 8 uppercase chars from a no-ambiguous alphabet ("I", "1", "O", "0"
