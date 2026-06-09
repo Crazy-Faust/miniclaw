@@ -23,9 +23,9 @@ ${body}
  * (so the caller can fall through to other routes when it returns false).
  *
  * Routes:
- *   GET /canvas              → list page with links to each canvas
- *   GET /canvas/:id          → the rendered HTML of one canvas
- *   GET /canvas/:id.json     → raw record as JSON
+ *   GET /canvas              -> list page with links to each canvas
+ *   GET /canvas/:id          -> the rendered HTML of one canvas
+ *   GET /canvas/:id.json     -> raw record as JSON
  */
 export function handleCanvasRequest(
   req: IncomingMessage,
@@ -71,11 +71,30 @@ export function handleCanvasRequest(
     // The agent owns the body — we only frame it. Untrusted HTML coming
     // from the model is the documented contract; the user explicitly
     // opens these pages.
-    sendHtml(res, 200, PAGE_TEMPLATE(rec.title, rec.html));
+    // VULN-17: Serve with CSP sandbox to prevent script execution.
+    sendSandboxedHtml(res, 200, PAGE_TEMPLATE(rec.title, rec.html));
     return true;
   }
 
   return false;
+}
+
+/**
+ * Security headers applied to canvas pages that render LLM-generated HTML.
+ * VULN-17: Content-Security-Policy: sandbox prevents script execution.
+ */
+const CANVAS_SECURITY_HEADERS: Record<string, string> = {
+  "content-security-policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data: https:;",
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+};
+
+function sendSandboxedHtml(res: ServerResponse, status: number, body: string): void {
+  res.writeHead(status, {
+    "content-type": "text/html; charset=utf-8",
+    ...CANVAS_SECURITY_HEADERS,
+  });
+  res.end(body);
 }
 
 function sendHtml(res: ServerResponse, status: number, body: string): void {

@@ -10,8 +10,6 @@ export interface SkillContext {
   memory: MemoryStore;
   audit: AuditSink;
   dbPath: string;
-  /** Logical session/channel id, e.g. "cli" or "discord:dm:<user-id>". */
-  channel?: string;
   /**
    * Optional filesystem sandbox root. Skills that touch the filesystem
    * (skills-fs, optionally skills-shell) refuse to operate on paths that
@@ -26,6 +24,13 @@ export interface SkillContext {
    * it (line buffering, ANSI handling, etc.).
    */
   onStream?: (kind: "stdout" | "stderr", chunk: string) => void;
+  /**
+   * Logical channel the calling session is on (e.g. "cli" or
+   * "discord:dm:123"). Skills like sessions_send use this to scope
+   * cross-session access. Unset in single-user CLI mode — skills treat
+   * absence as "no restriction" for backward compatibility.
+   */
+  channel?: string;
 }
 
 export interface ToolResult {

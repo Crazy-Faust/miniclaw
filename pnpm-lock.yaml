@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      discord.js:
+        specifier: ^14.26.4
+        version: 14.26.4
     devDependencies:
       '@types/better-sqlite3':
         specifier: ^7.6.11
@@ -45,6 +49,9 @@ importers:
       '@miniclaw/skills-shell':
         specifier: workspace:*
         version: link:../skills-shell
+      '@miniclaw/skills-todo':
+        specifier: workspace:*
+        version: link:../skills-todo
       better-sqlite3:
         specifier: ^12.10.0
         version: 12.10.0
@@ -250,6 +257,9 @@ importers:
       '@miniclaw/core':
         specifier: workspace:*
         version: link:../core
+      '@miniclaw/skills-fs':
+        specifier: workspace:*
+        version: link:../skills-fs
       playwright:
         specifier: '*'
         version: 1.60.0

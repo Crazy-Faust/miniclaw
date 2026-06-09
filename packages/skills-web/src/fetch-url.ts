@@ -8,6 +8,7 @@ const Params = z.object({
 
 export const DEFAULT_FETCH_MAX_BYTES = 256 * 1024;
 export const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
+export const DEFAULT_MAX_REDIRECTS = 5;
 
 export interface FetchUrlSkillOptions {
   /** Hostnames the skill may fetch. Empty = fail-closed (refuse all). */
@@ -16,6 +17,8 @@ export interface FetchUrlSkillOptions {
   maxBytes?: number;
   /** Per-request timeout. Default: 10s. */
   timeoutMs?: number;
+  /** Maximum redirect hops to follow. Default: 5. */
+  maxRedirects?: number;
   /**
    * Injectable fetch (tests use this to avoid real network I/O). Defaults to
    * the global fetch — Node 20+ provides one out of the box.
@@ -27,6 +30,7 @@ export function createFetchUrlSkill(opts: FetchUrlSkillOptions = {}): Skill<z.in
   const allowlist = opts.allowlist ?? new Set<string>();
   const maxBytes = opts.maxBytes ?? DEFAULT_FETCH_MAX_BYTES;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
+  const maxRedirects = opts.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
   const doFetch: typeof fetch = opts.fetch ?? ((input, init) => fetch(input, init));
 
   const allowlistDesc = allowlist.size === 0
@@ -48,13 +52,46 @@ export function createFetchUrlSkill(opts: FetchUrlSkillOptions = {}): Skill<z.in
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
+      // VULN-11: Use redirect: "manual" and re-validate each redirect
+      // target against the allowlist + private-host blocklist.
+      let currentUrl = check.url.toString();
       let response: Response;
+      let redirectCount = 0;
       try {
-        response = await doFetch(check.url.toString(), {
-          method: "GET",
-          redirect: "follow",
-          signal: controller.signal,
-        });
+        for (;;) {
+          response = await doFetch(currentUrl, {
+            method: "GET",
+            redirect: "manual",
+            signal: controller.signal,
+          });
+          // Follow redirects manually so we can re-validate each hop
+          if (response.status >= 300 && response.status < 400) {
+            const location = response.headers.get("location");
+            if (!location) break; // No Location header — treat as final
+            redirectCount++;
+            if (redirectCount > maxRedirects) {
+              clearTimeout(timeout);
+              return fail(`refused: too many redirects (limit: ${maxRedirects})`);
+            }
+            // Resolve the redirect URL (may be relative)
+            let redirectUrl: string;
+            try {
+              redirectUrl = new URL(location, currentUrl).toString();
+            } catch {
+              clearTimeout(timeout);
+              return fail(`refused: redirect target is not a valid URL: ${location}`);
+            }
+            // Re-validate the redirect target against allowlist + private host
+            const redirectCheck = checkUrl(redirectUrl, { allowlist });
+            if (!redirectCheck.ok) {
+              clearTimeout(timeout);
+              return fail(`refused: redirect to ${redirectUrl}: ${redirectCheck.reason}`);
+            }
+            currentUrl = redirectCheck.url.toString();
+            continue;
+          }
+          break;
+        }
       } catch (err) {
         clearTimeout(timeout);
         const msg = (err as Error).message || String(err);
@@ -64,15 +101,15 @@ export function createFetchUrlSkill(opts: FetchUrlSkillOptions = {}): Skill<z.in
         return fail(`fetch error: ${msg}`);
       }
 
-      const status = response.status;
-      const contentType = response.headers.get("content-type") ?? "";
+      const status = response!.status;
+      const contentType = response!.headers.get("content-type") ?? "";
 
       // Stream the body so a hostile server can't drown us in bytes.
       const chunks: Uint8Array[] = [];
       let received = 0;
       let truncated = false;
       try {
-        const reader = response.body?.getReader();
+        const reader = response!.body?.getReader();
         if (reader) {
           for (;;) {
             const { done, value } = await reader.read();
@@ -92,7 +129,7 @@ export function createFetchUrlSkill(opts: FetchUrlSkillOptions = {}): Skill<z.in
         } else {
           // Some fetch implementations don't expose a body stream (older test
           // fakes). Fall back to .text() with a hard length check.
-          const text = await response.text();
+          const text = await response!.text();
           const buf = Buffer.from(text, "utf8");
           if (buf.length > maxBytes) {
             chunks.push(buf.subarray(0, maxBytes));
@@ -114,7 +151,7 @@ export function createFetchUrlSkill(opts: FetchUrlSkillOptions = {}): Skill<z.in
       ).toString("utf8");
 
       const header =
-        `status=${status} url=${check.url.toString()} content_type=${contentType || "?"} ` +
+        `status=${status} url=${currentUrl} content_type=${contentType || "?"} ` +
         `bytes=${received}${truncated ? " (truncated)" : ""}`;
 
       const wrapped = `${header}\n<tool_output>\n${body}\n</tool_output>`;

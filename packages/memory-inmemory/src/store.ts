@@ -266,7 +266,7 @@ export class InMemoryStore
 
   private readonly pairings = new Map<string, { channel: string; expiresAt: number }>();
 
-  mintPairing(channel: string, ttlMs = 10 * 60_000): PairingRecord {
+  mintPairing(channel: string, ttlMs = 120 * 60_000): PairingRecord {
     for (const [code, rec] of this.pairings) {
       if (rec.channel === channel) this.pairings.delete(code);
     }

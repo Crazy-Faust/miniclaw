@@ -19,7 +19,7 @@ export interface Config {
 const DEFAULT_MODELS: Record<ProviderId, string> = {
   anthropic: "claude-sonnet-4-6",
   openai: "gpt-4o-mini",
-  gemini: "gemini-2.0-flash",
+  gemini: "gemini-3.1-flash-lite",
 };
 
 const API_KEY_VARS: Record<ProviderId, string> = {
