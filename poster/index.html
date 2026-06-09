@@ -2,285 +2,368 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>miniclaw — Poster</title>
-  <link rel="stylesheet" href="styles.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>miniclaw - Group 44 Poster</title>
+  <link rel="stylesheet" href="styles.css?v=20260609" />
 </head>
 <body>
+<script>
+  const exportScale = new URLSearchParams(window.location.search).get("exportScale");
+  if (exportScale === "2" || exportScale === "3") {
+    document.body.classList.add(`export-scale-${exportScale}`);
+  }
+</script>
 
 <!-- ============================================================ -->
-<!-- PAGE 1 — Why & What                                          -->
+<!-- PAGE 1 - Project, problem, challenges                         -->
 <!-- ============================================================ -->
-<section class="page">
-  <header class="title-bar">
-    <div class="title-main">
-      <div class="eyebrow">AI &amp; LLM · Group Project</div>
+<section class="page page-one">
+  <div class="page-mark">01</div>
+
+  <header class="hero">
+    <div>
+      <div class="eyebrow">AI &amp; LLM Group Project</div>
       <h1>miniclaw</h1>
-      <div class="subtitle">A local-first AI agent with an auditable tool layer</div>
+      <p class="subtitle">A local-first AI agent with auditable tools, readable memory, and swappable skills.</p>
     </div>
-    <div class="title-meta">
-      <div><span class="label">Group</span> #__</div>
-      <div><span class="label">Members</span> Andy Hu, ____, ____</div>
-      <div><span class="label">Date</span> June 2026</div>
-    </div>
-  </header>
-
-  <div class="cols-2">
-    <div class="col">
-      <h2>Abstract</h2>
-      <p>
-        miniclaw is a lightweight, local-first AI agent. It maps natural-language
-        requests to a small set of safe tools, runs them on the user's machine,
-        and writes every call to a SQLite audit log <em>before</em> the result is
-        returned to the model.
-      </p>
-      <p>
-        The codebase is a pnpm workspace of 25 small packages. Every major
-        subsystem — LLM provider, memory store, context strategy, skill, I/O,
-        transport — lives behind an interface in <code>@miniclaw/core</code>,
-        so each can be swapped or extended without touching the agent loop.
-      </p>
-      <p>
-        Three ways to run it: a single-process REPL, a long-lived daemon with
-        <code>chat</code> attach over a Unix socket, or the same daemon
-        answering Discord DMs.
-      </p>
-    </div>
-
-    <div class="col">
-      <h2>Initial Situation &amp; Problem</h2>
-      <ul class="bullets">
-        <li>Cloud agents are opaque — no audit trail, data leaves the machine, vendor lock-in.</li>
-        <li>Most agent frameworks entangle the LLM, the tools, and the I/O — hard to extend safely.</li>
-        <li>Self-hosted alternatives skimp on the tool-call boundary: no sandbox, no allowlist, no confirmation tier.</li>
-      </ul>
-      <h3>Questions we set out to answer</h3>
-      <ul class="bullets accent">
-        <li>Can a hobby-scale agent be <strong>provider-agnostic</strong>?</li>
-        <li>Can <strong>every</strong> tool call be auditable, by construction?</li>
-        <li>Can the tool boundary be <strong>safe by default</strong> (sandbox, allowlist, confirm)?</li>
-        <li>Can the same core drive a REPL, a daemon, and a Discord bot without rewrites?</li>
-      </ul>
-    </div>
-  </div>
-
-  <div class="kpis">
-    <div class="kpi"><div class="kpi-num">25</div><div class="kpi-label">packages in workspace</div></div>
-    <div class="kpi"><div class="kpi-num">~470</div><div class="kpi-label">tests passing</div></div>
-    <div class="kpi"><div class="kpi-num">3</div><div class="kpi-label">LLM providers</div></div>
-    <div class="kpi"><div class="kpi-num">20+</div><div class="kpi-label">built-in skills</div></div>
-  </div>
-
-  <footer class="page-footer">
-    <span>Page 1 / 3 · Why &amp; What</span>
-    <span>miniclaw · github.com/__/miniclaw</span>
-  </footer>
-</section>
-
-<!-- ============================================================ -->
-<!-- PAGE 2 — Approach (visual centrepiece)                       -->
-<!-- ============================================================ -->
-<section class="page">
-  <header class="title-bar slim">
-    <h1 class="slim-title">Approach <span class="slim-sub">— architecture &amp; key design decisions</span></h1>
-    <div class="title-meta"><span>miniclaw · Group #__</span></div>
-  </header>
-
-  <div class="approach-grid">
-    <div class="diagram-wrap">
-      <svg viewBox="0 0 1000 560" xmlns="http://www.w3.org/2000/svg" class="arch-svg">
-        <defs>
-          <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5"
-                  markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="#1f4e79" />
-          </marker>
-        </defs>
-        <!-- layer: front-ends -->
-        <g class="layer">
-          <rect x="20" y="20" width="960" height="110" rx="6" class="layer-bg" />
-          <text x="40" y="50" class="layer-label">Front-ends · I/O</text>
-          <g class="node-row" transform="translate(40,70)">
-            <g><rect width="160" height="44" rx="4" class="node" /><text x="80" y="28" class="node-t">REPL</text></g>
-            <g transform="translate(180,0)"><rect width="160" height="44" rx="4" class="node" /><text x="80" y="28" class="node-t">one-shot CLI</text></g>
-            <g transform="translate(360,0)"><rect width="160" height="44" rx="4" class="node" /><text x="80" y="28" class="node-t">chat (Unix socket)</text></g>
-            <g transform="translate(540,0)"><rect width="160" height="44" rx="4" class="node" /><text x="80" y="28" class="node-t">Discord DM</text></g>
-            <g transform="translate(720,0)"><rect width="200" height="44" rx="4" class="node" /><text x="100" y="28" class="node-t">HTTP / SSE</text></g>
-          </g>
-        </g>
-
-        <!-- arrows down -->
-        <g class="arrows-down">
-          <path d="M 200 130 L 200 165" /><path d="M 380 130 L 380 165" />
-          <path d="M 560 130 L 560 165" /><path d="M 740 130 L 740 165" />
-        </g>
-
-        <!-- core layer -->
-        <g class="layer">
-          <rect x="20" y="170" width="960" height="130" rx="6" class="core-bg" />
-          <text x="40" y="200" class="layer-label">Orchestration core · @miniclaw/core interfaces</text>
-          <g transform="translate(60,220)">
-            <g><rect width="260" height="60" rx="4" class="core-node" />
-               <text x="130" y="28" class="core-t">Agent.runTurn</text>
-               <text x="130" y="48" class="core-sub">one user turn end-to-end</text></g>
-            <g transform="translate(300,0)"><rect width="260" height="60" rx="4" class="core-node" />
-               <text x="130" y="28" class="core-t">Harness · SessionRegistry</text>
-               <text x="130" y="48" class="core-sub">multi-channel sessions</text></g>
-            <g transform="translate(600,0)"><rect width="280" height="60" rx="4" class="core-node" />
-               <text x="140" y="28" class="core-t">Gateway · CronScheduler</text>
-               <text x="140" y="48" class="core-sub">long-lived daemon</text></g>
-          </g>
-        </g>
-
-        <!-- arrows to backends -->
-        <g class="arrows-down">
-          <path d="M 180 300 L 180 345" /><path d="M 410 300 L 410 345" />
-          <path d="M 640 300 L 640 345" /><path d="M 850 300 L 850 345" />
-        </g>
-
-        <!-- backends -->
-        <g class="layer">
-          <rect x="20" y="350" width="960" height="190" rx="6" class="layer-bg" />
-          <text x="40" y="378" class="layer-label">Pluggable backends — drop-in via interface</text>
-
-          <!-- LLM providers -->
-          <g transform="translate(40,395)">
-            <text x="0" y="14" class="swim-label">LLM providers</text>
-            <g transform="translate(0,22)"><rect width="200" height="34" rx="3" class="back-node"/><text x="100" y="22" class="back-t">Anthropic · OpenAI</text></g>
-            <g transform="translate(0,62)"><rect width="200" height="34" rx="3" class="back-node"/><text x="100" y="22" class="back-t">Gemini · Ollama</text></g>
-          </g>
-          <!-- Context -->
-          <g transform="translate(260,395)">
-            <text x="0" y="14" class="swim-label">Context</text>
-            <g transform="translate(0,22)"><rect width="200" height="34" rx="3" class="back-node"/><text x="100" y="22" class="back-t">windowed + FTS5</text></g>
-            <g transform="translate(0,62)"><rect width="200" height="34" rx="3" class="back-node"/><text x="100" y="22" class="back-t">stateless</text></g>
-          </g>
-          <!-- Memory -->
-          <g transform="translate(480,395)">
-            <text x="0" y="14" class="swim-label">Memory</text>
-            <g transform="translate(0,22)"><rect width="200" height="34" rx="3" class="back-node"/><text x="100" y="22" class="back-t">SQLite · in-memory</text></g>
-            <g transform="translate(0,62)"><rect width="200" height="34" rx="3" class="back-node"/><text x="100" y="22" class="back-t">vector (embeddings)</text></g>
-          </g>
-          <!-- Skills -->
-          <g transform="translate(700,395)">
-            <text x="0" y="14" class="swim-label">Skills (tools)</text>
-            <g transform="translate(0,22)"><rect width="260" height="34" rx="3" class="back-node"/><text x="130" y="22" class="back-t">shell · fs · sql_query</text></g>
-            <g transform="translate(0,62)"><rect width="260" height="34" rx="3" class="back-node"/><text x="130" y="22" class="back-t">web · canvas · browser · cron</text></g>
-          </g>
-        </g>
-
-        <!-- caption -->
-        <text x="500" y="555" text-anchor="middle" class="caption">
-          Dependency direction: core ◀ everything ◀ cli (the only multi-impl importer)
-        </text>
-      </svg>
-    </div>
-
-    <aside class="design-panel">
-      <h2>Key design decisions</h2>
-
-      <div class="decision">
-        <div class="d-num">1</div>
-        <div>
-          <h3>Interface-first</h3>
-          <p>Every subsystem behind a <code>@miniclaw/core</code> interface. Concrete impls are wired only in <code>cli/</code> — anywhere else, importing a concrete class is a lint smell.</p>
-        </div>
+    <aside class="identity">
+      <div>
+        <span>Group</span>
+        <strong>44</strong>
       </div>
-
-      <div class="decision">
-        <div class="d-num">2</div>
-        <div>
-          <h3>Audit before execute</h3>
-          <p>Every tool call is written to <code>audit_log</code> <em>before</em> the result is handed back to the model. Even a misbehaving model leaves a trail.</p>
-        </div>
+      <div>
+        <span>Members</span>
+        <strong>Andy Hu<br />Anton Beer</strong>
       </div>
-
-      <div class="decision">
-        <div class="d-num">3</div>
-        <div>
-          <h3>Workspace sandbox</h3>
-          <p>fs / shell / browser resolve every path against <code>MINICLAW_WORKSPACE</code>. Symlinks escaping the root are refused. Shell uses an allowlist with no shell interpolation and a 10s timeout.</p>
-        </div>
-      </div>
-
-      <div class="decision">
-        <div class="d-num">4</div>
-        <div>
-          <h3>Confirmation tier</h3>
-          <p>Skills opt in with <code>requiresConfirmation: true</code>. Interactive mode prompts the user; one-shot mode <strong>fails closed</strong>. <code>browser_click</code> and <code>browser_fill</code> use this.</p>
-        </div>
+      <div>
+        <span>Date</span>
+        <strong>June 2026</strong>
       </div>
     </aside>
-  </div>
+  </header>
 
-  <footer class="page-footer">
-    <span>Page 2 / 3 · Approach</span>
-    <span>miniclaw · github.com/__/miniclaw</span>
+  <main class="page-one-grid">
+    <section class="abstract-panel">
+      <h2>Abstract</h2>
+      <p>
+        miniclaw is a proof-of-concept desktop agent. A user writes a normal message,
+        the agent chooses a skill, executes it inside a guarded workspace, and records
+        the action before the model sees the result.
+      </p>
+      <p>
+        The prototype makes autonomy inspectable: every capability is typed, every
+        action passes through the same loop, and long-running sessions can be traced
+        through memory, audit logs, and transport channels.
+      </p>
+    </section>
+
+    <section class="problem-panel">
+      <h2>Initial Situation / Problem</h2>
+      <p>
+        As LLM applications become more capable, they move from chat answers to
+        delegated tasks. OpenClaw is one example: a personal agent that can act on
+        a user's machine with increasing autonomy.
+      </p>
+      <p>
+        miniclaw builds a lightweight version of that idea. The focus is agent
+        infrastructure: route language to tools, keep memory auditable, and execute
+        actions safely.
+      </p>
+      <div class="question-strip">
+        <span>Which tool should run?</span>
+        <span>What should the agent remember?</span>
+        <span>How does the agent reach out to the user?</span>
+      </div>
+    </section>
+
+    <section class="challenge-panel">
+      <h2>Main Challenges</h2>
+      <div class="challenge-list">
+        <article>
+          <b>Intent-to-tool routing</b>
+          <span>Plain language must become the right skill or chain of skills.</span>
+        </article>
+        <article>
+          <b>Memory management</b>
+          <span>Retrieval should be fast, readable, and auditable.</span>
+        </article>
+        <article>
+          <b>Skill interfaces</b>
+          <span>New capabilities need clear contracts, not core changes.</span>
+        </article>
+        <article>
+          <b>Security model</b>
+          <span>Shell access, credentials, and untrusted inputs widen the attack surface.</span>
+        </article>
+        <article>
+          <b>Proactivity</b>
+          <span>The agent needs rules for when to reach out and when to wait.</span>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>Page 1 / 3 - Why this exists</span>
+    <span>miniclaw - local agent prototype</span>
   </footer>
 </section>
 
 <!-- ============================================================ -->
-<!-- PAGE 3 — Proof & Reflection                                  -->
+<!-- PAGE 2 - Approach                                             -->
 <!-- ============================================================ -->
-<section class="page">
-  <header class="title-bar slim">
-    <h1 class="slim-title">Results, Status &amp; Reflection</h1>
-    <div class="title-meta"><span>miniclaw · Group #__</span></div>
+<section class="page page-two">
+  <div class="page-mark">02</div>
+
+  <header class="section-header">
+    <div>
+      <div class="eyebrow">Approach</div>
+      <h1>The core loop</h1>
+    </div>
+    <div class="group-chip">Group 44</div>
   </header>
 
-  <h2 class="section-h">Results / Demo</h2>
-  <div class="demo-grid">
-    <figure class="shot">
-      <div class="shot-img placeholder">[ REPL screenshot — memory round-trip ]</div>
-      <figcaption>Memory round-trip: <code>write_memory</code> stores the fact; a later turn calls <code>search_memory</code> and recalls it.</figcaption>
-    </figure>
-    <figure class="shot">
-      <div class="shot-img placeholder">[ Discord DM screenshot — pairing flow ]</div>
-      <figcaption>Discord transport: pairing-code onboarding gates strangers; from then on DMs flow as channel <code>discord:dm:&lt;id&gt;</code>.</figcaption>
-    </figure>
-    <figure class="shot wide">
-      <pre class="terminal">
-$ sqlite3 ~/.miniclaw/miniclaw.db \
-  "select ts, skill, ok, result_summary from audit_log order by ts desc limit 5;"
+  <main class="architecture-layout">
+    <section class="architecture-stage">
+      <svg viewBox="0 0 1300 1080" role="img" aria-label="miniclaw architecture diagram">
+        <defs>
+          <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto">
+            <path d="M 1 1 L 11 6 L 1 11 Z" fill="#173f5f" />
+          </marker>
+          <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="8" stdDeviation="6" flood-color="#102331" flood-opacity="0.14" />
+          </filter>
+        </defs>
 
-1717··· | write_memory   | 1 | stored "preferred editor: helix"
-1717··· | search_memory  | 1 | 1 hit
-1717··· | shell          | 1 | date → Thu Jun  5 ...
-1717··· | list_directory | 1 | 14 entries
-1717··· | sql_query      | 1 | 5 rows</pre>
-      <figcaption>Every tool call lands in <code>audit_log</code> before the model sees the result — the auditability claim in evidence.</figcaption>
-    </figure>
-  </div>
+        <rect x="34" y="35" width="1232" height="1010" rx="22" class="blueprint" />
+        <rect x="65" y="96" width="312" height="872" rx="18" class="lane lane-a" />
+        <rect x="405" y="96" width="300" height="872" rx="18" class="lane lane-b" />
+        <rect x="735" y="96" width="300" height="872" rx="18" class="lane lane-c" />
+        <rect x="1065" y="96" width="170" height="872" rx="18" class="lane lane-d" />
 
-  <h2 class="section-h">Current status</h2>
-  <div class="status-rows">
-    <div class="status-row done"><span class="tick">✓</span> Core interfaces · SQLite store · 3 LLM providers · REPL · one-shot</div>
-    <div class="status-row done"><span class="tick">✓</span> Daemon + <code>chat</code> attach · cron persistence · Discord transport with pairing</div>
-    <div class="status-row partial"><span class="tick">▣</span> Vector memory · browser skills behind Playwright</div>
-    <div class="status-row todo"><span class="tick">☐</span> HTTP / SSE front-end polish · more transports (Slack, Matrix)</div>
-  </div>
+        <g class="flow-labels">
+          <text x="221" y="135">INPUTS</text>
+          <text x="555" y="135">AGENT LOOP</text>
+          <text x="885" y="135">POLICY + SKILLS / TOOLS</text>
+          <text x="1150" y="135">OUTPUT</text>
+        </g>
 
-  <div class="cols-2 reflect">
-    <div class="col">
-      <h2>What worked</h2>
-      <ul class="bullets">
-        <li>Small-package-per-interface kept blast radius tiny: adding Gemini was one new package, zero touches to the agent loop.</li>
-        <li>Audit-before-execute caught a real misbehaving prompt during dev — would have been invisible otherwise.</li>
-        <li>Pairing-code onboarding stopped strangers in field testing on a public Discord.</li>
-      </ul>
+        <g class="arch-node input" transform="translate(88 220)" filter="url(#softShadow)">
+          <rect width="266" height="162" rx="14" />
+          <text x="133" y="52" class="node-title">Plain message</text>
+          <text x="133" y="94" class="node-copy">"Remember this"</text>
+          <text x="133" y="126" class="node-copy">"Check the repo"</text>
+        </g>
+
+        <g class="arch-node trigger" transform="translate(88 525)" filter="url(#softShadow)">
+          <rect width="266" height="142" rx="14" />
+          <text x="133" y="50" class="node-title">Scheduled job</text>
+          <text x="133" y="90" class="node-copy">cron wakes session</text>
+        </g>
+
+        <path class="flow-arrow" d="M354 301 H420" />
+        <path class="flow-arrow" d="M354 596 C386 596 390 430 420 395" />
+
+        <g class="arch-node core" transform="translate(420 230)" filter="url(#softShadow)">
+          <rect width="260" height="228" rx="16" />
+          <text x="130" y="55" class="node-title">Agent turn</text>
+          <text x="130" y="101" class="node-copy">build context</text>
+          <text x="130" y="136" class="node-copy">ask provider</text>
+          <text x="130" y="171" class="node-copy">route tool call</text>
+        </g>
+
+        <path class="flow-arrow" d="M680 344 H764" />
+
+        <g class="arch-node guard" transform="translate(764 230)" filter="url(#softShadow)">
+          <rect width="260" height="228" rx="16" />
+          <text x="130" y="55" class="node-title">Policy gate</text>
+          <text x="130" y="101" class="node-copy">workspace sandbox</text>
+          <text x="130" y="136" class="node-copy">allowlist + timeout</text>
+          <text x="130" y="171" class="node-copy">confirm risky actions</text>
+        </g>
+
+        <path class="flow-arrow" d="M1024 344 H1090" />
+
+        <g class="arch-node output" transform="translate(1090 255)" filter="url(#softShadow)">
+          <rect width="120" height="178" rx="14" />
+          <text x="60" y="77" class="node-title">Reply</text>
+          <text x="60" y="118" class="node-copy">with trace</text>
+        </g>
+
+        <path class="flow-arrow down" d="M550 458 V585" />
+        <path class="flow-arrow down" d="M894 458 V585" />
+        <path class="agent-cycle-arrow" d="M680 585 C724 548 710 480 680 430" />
+
+        <g class="arch-node support" transform="translate(420 585)" filter="url(#softShadow)">
+          <rect width="260" height="218" rx="16" />
+          <text x="130" y="50" class="node-title">Memory</text>
+          <text x="130" y="91" class="node-copy">SQLite durable</text>
+          <text x="130" y="126" class="node-copy">in-memory ephemeral</text>
+          <text x="130" y="161" class="node-copy">vector retrieval</text>
+          <text x="130" y="196" class="node-copy">same interface</text>
+        </g>
+
+        <g class="arch-node skills" transform="translate(764 585)" filter="url(#softShadow)">
+          <rect width="260" height="218" rx="16" />
+          <text x="130" y="50" class="node-title">Skills / Tools</text>
+          <text x="130" y="91" class="node-copy">shell, fs, web</text>
+          <text x="130" y="126" class="node-copy">browser, todo</text>
+          <text x="130" y="161" class="node-copy">sessions, cron</text>
+          <text x="130" y="196" class="node-copy">tool adapters</text>
+        </g>
+
+        <path class="loop-arrow" d="M764 585 C724 548 710 480 680 430" />
+
+        <g class="audit-badge" transform="translate(205 875)">
+          <rect width="890" height="78" rx="39" />
+          <text x="445" y="49">audit first: log the tool call before the model sees the result</text>
+        </g>
+      </svg>
+    </section>
+
+    <aside class="decision-stack">
+      <h2>Key Design Decisions</h2>
+      <article>
+        <span class="num">1</span>
+        <div>
+          <h3>Model routes tools</h3>
+          <p>No custom classifier: tool specs, schemas, system prompt, and history are sent to the provider each round.</p>
+        </div>
+      </article>
+      <article>
+        <span class="num">2</span>
+        <div>
+          <h3>Memory is layered</h3>
+          <p>Long-term memories are separate from per-session turn history, then merged by the context manager.</p>
+        </div>
+      </article>
+      <article>
+        <span class="num">3</span>
+        <div>
+          <h3>Skills are contracts</h3>
+          <p>A skill is name, description, Zod parameters, optional confirmation, and execute(args, ctx).</p>
+        </div>
+      </article>
+      <article>
+        <span class="num">4</span>
+        <div>
+          <h3>Sandbox at boundaries</h3>
+          <p>Security is per skill/tool: filesystem, shell, SQL, web, and confirmations each enforce their own guard.</p>
+        </div>
+      </article>
+    </aside>
+  </main>
+
+  <footer class="footer">
+    <span>Page 2 / 3 - Architecture</span>
+    <span>Intent routing, memory, skill boundaries, security, proactivity</span>
+  </footer>
+</section>
+
+<!-- ============================================================ -->
+<!-- PAGE 3 - Code-grounded results and reflection                 -->
+<!-- ============================================================ -->
+<section class="page page-three">
+  <div class="page-mark">03</div>
+
+  <header class="section-header">
+    <div>
+      <div class="eyebrow">Results / Code Grounding</div>
+      <h1>What is actually implemented</h1>
     </div>
-    <div class="col">
-      <h2>What didn't &amp; what we'd change</h2>
-      <ul class="bullets">
-        <li><strong>Native build pain.</strong> <code>better-sqlite3</code> on Windows is a porting tax — we tell users to use WSL.</li>
-        <li><strong>Cron syntax is minimal</strong> (<code>@every Ns|m|h|d</code>). Full cron deferred — limits scheduling flexibility.</li>
-        <li><strong>Vector memory</strong> not yet competitive with FTS5 at this scale. Would ship FTS-only next time and add embeddings later.</li>
-        <li><strong>Order of work.</strong> Would ship the HTTP/SSE front-end before Discord, and pick one context strategy as canonical earlier.</li>
-      </ul>
-    </div>
-  </div>
+    <div class="group-chip">miniclaw</div>
+  </header>
 
-  <footer class="page-footer">
-    <span>Page 3 / 3 · Reflection</span>
-    <span>miniclaw · github.com/__/miniclaw</span>
+  <main class="results-layout">
+    <section class="evidence-grid">
+      <article class="evidence-card wide">
+        <h2>Intent-to-tool routing</h2>
+        <p>Routing is LLM-native tool calling, not local keyword rules. The agent sends the system prompt, recent history, and every registered tool spec each round.</p>
+        <ul>
+          <li><code>WindowedContextManager</code> tells the model when to use memory tools.</li>
+          <li><code>SkillRegistry.toolSpecs()</code> converts Zod schemas to provider tool specs.</li>
+          <li>OpenAI, Anthropic, and Gemini adapters expose native tool/function APIs.</li>
+          <li>Multi-step chains run through the same loop, capped by <code>MAX_ROUNDS = 6</code>.</li>
+        </ul>
+      </article>
+
+      <article class="evidence-card">
+        <h2>Skill interface</h2>
+        <p>Adding a capability means exporting one object, then registering it once. The context carries memory, audit, DB path, channel, workspace root, and streaming output.</p>
+        <ul>
+          <li><code>name</code>, <code>description</code></li>
+          <li><code>parameters</code>: Zod schema</li>
+          <li><code>requiresConfirmation?</code></li>
+          <li><code>execute(args, ctx)</code></li>
+          <li>Dispatch validates args, confirms risky skills, executes, audits, returns result.</li>
+        </ul>
+      </article>
+
+      <article class="evidence-card dark">
+        <h2>Security model</h2>
+        <p>Sandboxing is application-level and workspace-root based.</p>
+        <ul>
+          <li><code>MINICLAW_WORKSPACE</code>, default <code>process.cwd()</code></li>
+          <li>Filesystem rejects escapes, NUL bytes, and outside symlinks.</li>
+          <li>Writes and patches require confirmation and temp-file-plus-rename.</li>
+          <li>Shell uses argv, <code>shell:false</code>, allowlisted binaries, and guarded path args.</li>
+          <li>Rejected shell syntax includes backticks, <code>$</code>, <code>$(</code>, <code>||</code>, and <code>&amp;&amp;</code>.</li>
+          <li>Web uses domain/private-host checks; SQL allows single <code>SELECT/WITH</code>.</li>
+        </ul>
+      </article>
+
+      <article class="evidence-card">
+        <h2>Memory management</h2>
+        <p>Two layers: long-term facts/preferences/tasks, plus conversation history per session.</p>
+        <ul>
+          <li>Memory contract: <code>add</code>, <code>search</code>, <code>listRecent</code>.</li>
+          <li>SQLite stores memories with FTS5 search by rank.</li>
+          <li>Each turn injects up to 5 memory hits and last 12 messages.</li>
+          <li>Messages are stored by <code>conv_id</code>; daemon channels get isolated sessions.</li>
+          <li>In-memory and vector stores exist; vector search is still experimental.</li>
+          <li>Compaction exists, but default behavior is windowing.</li>
+        </ul>
+      </article>
+
+      <article class="evidence-card wide">
+        <h2>Proactivity</h2>
+        <p>The model does not wake itself. Proactivity is scheduled prompts stored with channel, prompt, schedule, and next run time.</p>
+        <ul>
+          <li><code>reminder_add</code> and <code>cron_add</code> store jobs with the originating <code>ctx.channel</code>.</li>
+          <li>The daemon starts <code>CronScheduler</code> and handles background scheduled prompts.</li>
+          <li>Scheduler ticks immediately, then every 30s; <code>@once</code> removes before run, <code>@every</code> reschedules before run.</li>
+          <li>The gateway attaches the stored channel and sends the prompt through the normal agent loop.</li>
+          <li>Transport hooks can deliver <code>trace.finalText</code> back to the original channel.</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="bottom-row">
+      <article>
+        <strong>Opt-in / partial</strong>
+        <ul>
+          <li>Playwright browser skills require optional dependency</li>
+          <li>Discord reminders work through daemon transport</li>
+          <li>compaction and vector semantic memory are not the default path</li>
+        </ul>
+      </article>
+      <article>
+        <strong>Possible improvements</strong>
+        <ul>
+          <li>move beyond app-level sandboxing for high-risk actions</li>
+          <li>stronger prompt-injection and credential scopes</li>
+          <li>Use a small LLM to cluster, rewrite, and retire SQLite memories.</li>
+          <li>Add markdown-skills / agentskills support.</li>
+          <li>Run nightly dreaming: review recent chats and propose next actions.</li>
+          <li>Define external tool adapters before expanding the skill set.</li>
+        </ul>
+      </article>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>Page 3 / 3 - Proof and reflection</span>
+    <span>Group 44 - Andy Hu, Anton Beer</span>
   </footer>
 </section>
 
