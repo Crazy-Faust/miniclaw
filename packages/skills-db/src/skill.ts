@@ -28,8 +28,9 @@ export const sqlQuerySkill: Skill<z.infer<typeof Params>> = {
     const check = checkSqlQuery(args.sql);
     if (!check.ok) return fail(`refused: ${check.reason}`);
 
-    const db = new Database(ctx.dbPath, { readonly: true });
+    let db: Database.Database | undefined;
     try {
+      db = new Database(ctx.dbPath, { readonly: true });
       db.pragma("query_only = ON");
       const rows = db.prepare(check.sql).all() as unknown[];
       const capped = rows.slice(0, args.limit);
@@ -40,7 +41,7 @@ export const sqlQuerySkill: Skill<z.infer<typeof Params>> = {
     } catch (err) {
       return fail(`sql error: ${(err as Error).message}`);
     } finally {
-      db.close();
+      db?.close();
     }
   },
 };

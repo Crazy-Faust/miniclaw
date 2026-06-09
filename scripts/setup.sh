@@ -4,13 +4,13 @@
 # Flags:
 #   --yes        accept all defaults; never prompt (CI / scripted installs)
 #   --skip-test  skip the post-install test suite
-#   --no-deps    skip optional peer deps (playwright / discord.js)
+#   --no-deps    skip optional peer deps (playwright)
 #
 # What it does, in order:
 #   1. checks node + pnpm versions
 #   2. runs `pnpm install`
 #   3. seeds .env from .env.example if missing, prompts for provider + key
-#   4. optionally installs playwright and/or discord.js peer deps
+#   4. optionally installs Playwright browser support
 #   5. runs `pnpm test` to confirm the install is healthy
 #   6. prints next-step hints
 set -euo pipefail
@@ -178,15 +178,8 @@ fi
 
 if [ "$SKIP_DEPS" = 0 ]; then
   step "optional peer deps"
-  note "skill-browser needs playwright; transport-discord needs discord.js"
-  note "(say no if you don't want them — both can be added later)"
-
-  if ask_yn "install discord.js (~5 MB, enables the Discord transport)" "n"; then
-    pnpm add -w discord.js
-    ok "discord.js installed"
-  else
-    note "skipped discord.js — install later with: pnpm add -w discord.js"
-  fi
+  note "skill-browser needs playwright. Discord support is installed with the workspace."
+  note "(say no if you don't want browser support — it can be added later)"
 
   if ask_yn "install playwright + chromium (~200 MB, enables browser_* skills)" "n"; then
     pnpm add -w playwright

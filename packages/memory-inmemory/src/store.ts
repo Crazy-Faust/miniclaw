@@ -180,9 +180,16 @@ export class InMemoryStore
 
   // ---- CronStore ----
 
-  addCron(name: string, prompt: string, schedule: string, nextRunAt: number): CronJobRecord {
+  addCron(
+    name: string,
+    prompt: string,
+    schedule: string,
+    nextRunAt: number,
+    channel: string | null = null,
+  ): CronJobRecord {
     const rec: CronJobRecord = {
       id: ++this.cronSeq,
+      channel,
       name,
       prompt,
       schedule,

@@ -118,6 +118,7 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
         memory: store,
         audit: store,
         dbPath: config.dbPath,
+        channel: session.channel,
         workspaceRoot: config.workspaceRoot,
       });
     },
@@ -132,9 +133,6 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
   for (const sk of createCanvasSkills({ store: canvasStore })) {
     if (!registry.has(sk.name)) registry.register(sk);
   }
-
-  const cron = new CronScheduler({ store, gateway });
-  cron.start();
 
   const transports: Transport[] = [];
   const discordToken = process.env.MINICLAW_DISCORD_TOKEN;
@@ -153,6 +151,23 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
       process.stderr.write(`miniclaw daemon: discord transport failed: ${(err as Error).message}\n`);
     }
   }
+
+  const cron = new CronScheduler({
+    store,
+    gateway,
+    onResult: async (_job, channel, text) => {
+      if (!text) return;
+      for (const t of transports) {
+        const maybeSender = t as Transport & {
+          sendToChannel?: (channel: string, text: string) => Promise<boolean> | boolean;
+        };
+        if (maybeSender.sendToChannel && await maybeSender.sendToChannel(channel, text)) {
+          return;
+        }
+      }
+    },
+  });
+  cron.start();
 
   const handle = startSocketDaemon({
     gateway,

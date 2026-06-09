@@ -5,21 +5,27 @@ export interface CronSchedulerOpts {
   store: CronStore;
   gateway: Gateway;
   /**
-   * Channel used to attach a session for cron-triggered prompts. Every
-   * cron fire is sent to the same "cron" channel by default so jobs share
-   * one conversation context — change this if you'd prefer per-job
-   * sessions.
+   * Channel used to attach a session for jobs without a stored channel.
+   * Jobs scheduled from Discord/CLI normally store their originating
+   * channel so proactive results can return to the right transport.
    */
   channel?: string;
   /** Tick interval in ms. Default 30s. */
   tickMs?: number;
   /** Wall clock — injectable for tests. */
   now?: () => number;
+  /**
+   * Optional sink for proactive deliveries. The scheduler still runs the
+   * prompt through the gateway/session; this hook lets transports send the
+   * final text back to the originating channel.
+   */
+  onResult?: (job: CronJobRecord, channel: string, text: string) => Promise<void> | void;
 }
 
 /**
  * Polls the cron store on a tick. For every job whose nextRunAt is in the
- * past, fires the job against the gateway and bumps nextRunAt. The
+ * past, fires the job against the gateway and bumps nextRunAt or removes
+ * one-shot jobs. The
  * scheduler doesn't try to "catch up" — if the daemon was offline through
  * three fires of a 5-minute job, the job fires once on resume.
  */
@@ -54,15 +60,22 @@ export class CronScheduler {
     try {
       const now = (this.opts.now ?? Date.now)();
       const due = this.opts.store.cronDueNow(now);
-      const channel = this.opts.channel ?? "cron";
-      const session = this.opts.gateway.attach(channel);
       for (const job of due) {
-        const nextRunAt = nextFire(job.schedule, now);
-        // Mark BEFORE running so a job that crashes the daemon doesn't
-        // re-fire on every restart.
-        this.opts.store.markCronRan(job.id, now, nextRunAt);
+        const channel = job.channel ?? this.opts.channel ?? "cron";
+        const oneShot = isOneShotSchedule(job.schedule);
+        if (oneShot) {
+          // Remove BEFORE running so a crashing job doesn't re-fire forever.
+          this.opts.store.removeCron(job.id);
+        } else {
+          const nextRunAt = nextFire(job.schedule, now);
+          // Mark BEFORE running so a job that crashes the daemon doesn't
+          // re-fire on every restart.
+          this.opts.store.markCronRan(job.id, now, nextRunAt);
+        }
         try {
-          await session.send(job.prompt);
+          const session = this.opts.gateway.attach(channel);
+          const trace = await session.send(job.prompt);
+          await this.opts.onResult?.(job, channel, trace.finalText);
         } catch (err) {
           // Cron failures are logged via the agent's audit log; swallow
           // here so one bad job doesn't take down the scheduler.
@@ -84,16 +97,21 @@ const UNIT_MS: Record<string, number> = {
 };
 
 /**
- * Parse a `@every N<unit>` cadence and return the interval in ms.
- * Throws on anything else — real cron expressions are intentionally
- * deferred until a real user asks for them.
+ * Parse a `@every N<unit>` cadence or `@once` and return the interval in
+ * ms. Real cron expressions are intentionally deferred until a real user
+ * asks for them.
  */
 export function parseSchedule(schedule: string): number {
+  if (isOneShotSchedule(schedule)) return 0;
   const m = /^@every\s+(\d+)\s*(s|m|h|d)$/i.exec(schedule.trim());
-  if (!m) throw new Error(`unsupported schedule: ${schedule}. Use "@every N<s|m|h|d>"`);
+  if (!m) throw new Error(`unsupported schedule: ${schedule}. Use "@every N<s|m|h|d>" or "@once"`);
   const n = Number(m[1]);
   const unit = m[2]!.toLowerCase();
   return n * UNIT_MS[unit]!;
+}
+
+export function isOneShotSchedule(schedule: string): boolean {
+  return schedule.trim().toLowerCase() === "@once";
 }
 
 export function nextFire(schedule: string, from: number): number {

@@ -113,6 +113,15 @@ describe("DiscordTransport", () => {
     expect(last).toBe("echo:what's 2+2");
   });
 
+  it("sendToChannel sends proactive messages to Discord DM channels", async () => {
+    await expect(transport.sendToChannel("discord:dm:u1", "take out the trash")).resolves.toBe(true);
+    expect(fake.sent[fake.sent.length - 1]).toEqual({
+      userId: "u1",
+      text: "take out the trash",
+    });
+    await expect(transport.sendToChannel("cli", "nope")).resolves.toBe(false);
+  });
+
   it("stop() disconnects the client", async () => {
     expect(fake.connected).toBe(true);
     await transport.stop();

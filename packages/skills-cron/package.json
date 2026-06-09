@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "cron_add, cron_list, cron_remove, cron_pause skills. The gateway's CronScheduler is the runtime.",
+  "description": "reminder_add and cron_add/list/remove/pause skills. The gateway's CronScheduler is the runtime.",
   "exports": {
     ".": "./src/index.ts"
   },

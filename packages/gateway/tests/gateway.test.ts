@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { Agent } from "@miniclaw/agent";
+import type { CronJobRecord } from "@miniclaw/core";
 import { Gateway } from "../src/gateway.ts";
-import { parseSchedule } from "../src/cron.ts";
+import { CronScheduler, isOneShotSchedule, parseSchedule } from "../src/cron.ts";
 
 // Minimal fake store satisfying SessionStore + ConversationStore.
 function makeStore() {
   const sessions: any[] = [];
   const convs: any[] = [];
   const messages: any[] = [];
+  const cronJobs: CronJobRecord[] = [];
   let cid = 0;
   let mid = 0;
+  let cronId = 0;
   return {
     sessions,
     convs,
@@ -52,6 +55,53 @@ function makeStore() {
     },
     listConversations() { return []; },
     loadConversation() { return []; },
+    addCron(
+      name: string,
+      prompt: string,
+      schedule: string,
+      nextRunAt: number,
+      channel: string | null = null,
+    ) {
+      const rec: CronJobRecord = {
+        id: ++cronId,
+        name,
+        prompt,
+        schedule,
+        nextRunAt,
+        lastRunAt: 0,
+        status: "active",
+        channel,
+        createdAt: Date.now(),
+      };
+      cronJobs.push(rec);
+      return rec;
+    },
+    listCron() {
+      return [...cronJobs];
+    },
+    getCron(id: number) {
+      return cronJobs.find((r) => r.id === id) ?? null;
+    },
+    removeCron(id: number) {
+      const before = cronJobs.length;
+      const idx = cronJobs.findIndex((r) => r.id === id);
+      if (idx >= 0) cronJobs.splice(idx, 1);
+      return cronJobs.length !== before;
+    },
+    setCronPaused(id: number, paused: boolean) {
+      const rec = cronJobs.find((r) => r.id === id);
+      if (rec) rec.status = paused ? "paused" : "active";
+    },
+    cronDueNow(now: number) {
+      return cronJobs.filter((r) => r.status === "active" && r.nextRunAt <= now);
+    },
+    markCronRan(id: number, ranAt: number, nextRunAt: number) {
+      const rec = cronJobs.find((r) => r.id === id);
+      if (!rec) return false;
+      rec.lastRunAt = ranAt;
+      rec.nextRunAt = nextRunAt;
+      return true;
+    },
   };
 }
 
@@ -132,5 +182,37 @@ describe("parseSchedule", () => {
   it("rejects unsupported expressions", () => {
     expect(() => parseSchedule("* * * * *")).toThrow();
     expect(() => parseSchedule("@every banana")).toThrow();
+  });
+
+  it("recognizes @once as a one-shot schedule", () => {
+    expect(isOneShotSchedule("@once")).toBe(true);
+    expect(parseSchedule("@once")).toBe(0);
+  });
+});
+
+describe("CronScheduler", () => {
+  it("fires one-shot jobs on their stored channel, removes them, and emits final text", async () => {
+    const store = makeStore();
+    const gateway = new Gateway({
+      sessions: store,
+      conversations: store,
+      agentFor: () => makeAgent(),
+    });
+    store.addCron("trash", "remind trash", "@once", 1000, "discord:dm:u1");
+    const delivered: Array<{ channel: string; text: string }> = [];
+    const scheduler = new CronScheduler({
+      store,
+      gateway,
+      now: () => 2000,
+      onResult: (_job, channel, text) => {
+        delivered.push({ channel, text });
+      },
+    });
+
+    await scheduler.tick();
+
+    expect(store.listCron()).toHaveLength(0);
+    expect(delivered).toEqual([{ channel: "discord:dm:u1", text: "echo:remind trash" }]);
+    expect(store.listSessions()[0]!.channel).toBe("discord:dm:u1");
   });
 });

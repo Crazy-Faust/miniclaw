@@ -4,6 +4,8 @@
 
 export interface CronJobRecord {
   id: number;
+  /** Channel to send the prompt to when it fires. Unset uses scheduler default. */
+  channel?: string | null;
   /** Human-readable label shown in cron_list. */
   name: string;
   /** Prompt text to send to the agent when the job fires. */
@@ -11,6 +13,7 @@ export interface CronJobRecord {
   /**
    * Cadence. Currently supports a tiny dialect:
    *   "@every 30s" | "@every 5m" | "@every 1h" | "@every 1d"
+   *   "@once" for one-shot reminders
    * Future: real cron expressions.
    */
   schedule: string;
@@ -24,7 +27,13 @@ export interface CronJobRecord {
 }
 
 export interface CronStore {
-  addCron(name: string, prompt: string, schedule: string, nextRunAt: number): CronJobRecord;
+  addCron(
+    name: string,
+    prompt: string,
+    schedule: string,
+    nextRunAt: number,
+    channel?: string | null,
+  ): CronJobRecord;
   listCron(): CronJobRecord[];
   getCron(id: number): CronJobRecord | null;
   removeCron(id: number): void;

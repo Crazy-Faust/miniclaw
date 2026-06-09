@@ -3,8 +3,8 @@ import { InMemoryStore } from "@miniclaw/memory-inmemory";
 import type { AuditSink, MemoryStore, SkillContext } from "@miniclaw/core";
 import { createCronSkills } from "../src/skills.ts";
 
-function makeCtx(): SkillContext {
-  return { memory: {} as MemoryStore, audit: {} as AuditSink, dbPath: ":memory:" };
+function makeCtx(channel?: string): SkillContext {
+  return { memory: {} as MemoryStore, audit: {} as AuditSink, dbPath: ":memory:", channel };
 }
 
 describe("cron skills", () => {
@@ -18,6 +18,34 @@ describe("cron skills", () => {
     );
     expect(res.ok).toBe(true);
     expect(store.listCron()).toHaveLength(1);
+  });
+
+  it("cron_add stores the current channel for proactive delivery", async () => {
+    const store = new InMemoryStore();
+    const skills = createCronSkills(store);
+    const add = skills.find((s) => s.name === "cron_add")!;
+    await add.execute(
+      { name: "brief", prompt: "send brief", schedule: "@every 1h" },
+      makeCtx("discord:dm:u1"),
+    );
+    expect(store.getCron(1)!.channel).toBe("discord:dm:u1");
+  });
+
+  it("reminder_add stores a one-shot reminder on the current channel", async () => {
+    const store = new InMemoryStore();
+    const skills = createCronSkills(store);
+    const add = skills.find((s) => s.name === "reminder_add")!;
+    const before = Date.now();
+    const res = await add.execute(
+      { name: "trash", message: "take out the trash", delaySeconds: 30 },
+      makeCtx("discord:dm:u1"),
+    );
+    expect(res.ok).toBe(true);
+    const job = store.getCron(1)!;
+    expect(job.channel).toBe("discord:dm:u1");
+    expect(job.schedule).toBe("@once");
+    expect(job.prompt).toContain("take out the trash");
+    expect(job.nextRunAt).toBeGreaterThanOrEqual(before + 30_000);
   });
 
   it("cron_add rejects an unsupported schedule", async () => {

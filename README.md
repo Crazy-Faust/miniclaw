@@ -20,7 +20,7 @@ cd miniclaw
 pnpm setup
 ```
 
-The setup script checks your toolchain, runs `pnpm install`, seeds `.env` (prompts you for a provider and key), offers to install the optional peer deps for the Discord and browser features, and runs the test suite. It's idempotent — re-run any time. Flags: `--yes` (no prompts), `--skip-test`, `--no-deps`.
+The setup script checks your toolchain, runs `pnpm install`, seeds `.env` (prompts you for a provider and key), offers to install the optional browser dependency, and runs the test suite. It's idempotent — re-run any time. Flags: `--yes` (no prompts), `--skip-test`, `--no-deps`.
 
 After it finishes:
 
@@ -43,10 +43,9 @@ You need:
 - **pnpm ≥ 9** — install with `brew install pnpm` (macOS), `npm install -g pnpm`, or [other methods](https://pnpm.io/installation)
 - A native toolchain (Xcode CLT on macOS, `build-essential` on Linux) — needed once to compile `better-sqlite3`
 
-Optional, only if you want the matching features:
+Optional, only if you want the matching feature:
 
 - **Playwright** — required by `skills-browser`. `pnpm add -w playwright && pnpm exec playwright install chromium`. Not installed by default.
-- **discord.js** — required by `transport-discord`. `pnpm add -w discord.js`. Not installed by default.
 
 Check:
 
@@ -130,7 +129,7 @@ You should see:
 miniclaw — provider anthropic, model claude-sonnet-4-6, db /Users/you/.miniclaw/miniclaw.db, windowed context
 skills: write_memory, search_memory, shell, sql_query, read_file, list_directory, write_file, apply_patch, fetch_url,
         sessions_list, sessions_history, sessions_send, sessions_spawn,
-        cron_add, cron_list, cron_remove, cron_pause,
+        reminder_add, cron_add, cron_list, cron_remove, cron_pause,
         canvas_create, canvas_update, canvas_list, canvas_delete
 type /help for slash commands, /exit to quit
 >
@@ -283,19 +282,23 @@ systemctl --user enable --now miniclaw-gateway
 
 `install` only writes the template file — loading it is an explicit follow-up step. Daemon stdout/stderr go to `$MINICLAW_HOME/daemon.out.log` and `daemon.err.log`.
 
-### Scheduling recurring prompts
+### Scheduling reminders and recurring prompts
 
 Once a daemon is running, ask the agent to schedule a job:
 
 ```
+> remind me in 30 seconds to take out the trash
+  · tool reminder_add({"message":"take out the trash","delaySeconds":30})
+scheduled reminder #1
+
 > remind me every 15 minutes to stretch
   · tool cron_add({"name":"stretch","prompt":"remind me to stretch","schedule":"@every 15m"})
 scheduled job #1
 ```
 
-Cron jobs are persisted in SQLite; they survive daemon restarts. List or cancel them with `cron_list` / `cron_remove` (the agent will pick the right tool from a natural-language ask).
+Reminders use one-shot `@once` jobs; recurring prompts use `@every`. Both are persisted in SQLite and survive daemon restarts. List or cancel them with `cron_list` / `cron_remove` (the agent will pick the right tool from a natural-language ask).
 
-Schedule syntax: `@every <N>(s|m|h|d)`. Real cron expressions are intentionally deferred.
+Schedule syntax: `@once` or `@every <N>(s|m|h|d)`. Real cron expressions are intentionally deferred.
 
 ---
 
@@ -305,16 +308,15 @@ The daemon can also listen for Discord DMs. Per-channel allowlist + pairing-code
 
 1. Create a Discord application at https://discord.com/developers/applications and add a Bot. Enable **MESSAGE CONTENT INTENT** under "Privileged Gateway Intents". Copy the bot token.
 2. Invite the bot (OAuth2 → URL Generator → `bot` scope, `Send Messages` + `Read Message History`). Discord requires a mutual server for DMs, so even if you only want DMs, add the bot to a throwaway server.
-3. Install the optional peer dep: `pnpm add -w discord.js`
-4. Add to `.env`: `MINICLAW_DISCORD_TOKEN=Mzk...`
-5. `pnpm dev -- daemon run`. Look for the line `miniclaw daemon: discord transport connected`.
-6. DM the bot anything. The bot replies asking for a pairing code. In the daemon log you'll see:
+3. Add to `.env`: `MINICLAW_DISCORD_TOKEN=Mzk...`
+4. `pnpm dev -- daemon run`. Look for the line `miniclaw daemon: discord transport connected`.
+5. DM the bot anything. The bot replies asking for a pairing code. In the daemon log you'll see:
    ```
    discord: pairing requested by yourname (12345...) — code ABC23XYZ expires ...
    ```
-7. DM the bot `/pair ABC23XYZ`. It replies `paired — go ahead and ask me anything.`
+6. DM the bot `/pair ABC23XYZ`. It replies `paired — go ahead and ask me anything.`
 
-From then on your DMs flow into the agent as channel `discord:dm:<your-user-id>`. Codes are single-use and expire in 10 minutes. The allowlist is persisted in SQLite under `channel_allowlist`.
+From then on your DMs flow into the agent as channel `discord:dm:<your-user-id>`. Codes are single-use and expire in 10 minutes. The allowlist is persisted in SQLite under `channel_allowlist`. The Discord session gets the same daemon skills as the CLI, including `reminder_add`, `cron_*`, `sessions_*`, and `canvas_*`; scheduled reminders store the Discord DM channel and send their final reminder text back to that DM.
 
 ---
 
@@ -406,7 +408,7 @@ Comma-separated. Blank input means no parameters.
 
 **`playwright is not installed`** — the `browser_*` skills need it. `pnpm add -w playwright && pnpm exec playwright install chromium`.
 
-**`discord.js is not installed`** — the Discord transport needs it. `pnpm add -w discord.js`.
+**`discord.js could not be loaded`** — the install is incomplete or corrupted. Run `pnpm install` from the repo root and retry.
 
 **`no daemon at /Users/you/.miniclaw/miniclaw.sock`** — you ran `miniclaw chat` without starting the daemon first. `miniclaw daemon start`.
 
@@ -520,7 +522,7 @@ Per-package commands let two people work in two different packages without rebui
 | `web_search` | Provider-backed web search. | Only registered when `MINICLAW_SEARCH_API_KEY` is set. |
 | `todo_write` | Maintain a multi-step plan across turns. | Pure write to an in-process store. |
 | `sessions_list` / `_history` / `_send` / `_spawn` | Drive the gateway's session registry. | Pure store operations. |
-| `cron_add` / `_list` / `_remove` / `_pause` | Schedule recurring prompts persisted in SQLite. | The gateway's `CronScheduler` ticks them. |
+| `reminder_add`, `cron_add` / `_list` / `_remove` / `_pause` | Schedule one-shot reminders and recurring prompts persisted in SQLite. | The gateway's `CronScheduler` ticks them and returns proactive results to the originating channel when available. |
 | `canvas_create` / `_update` / `_list` / `_delete` | Author HTML scratchpad pages mountable on the io-http server. | In-memory store; never touches disk. |
 | `browser_open` / `_read_page` / `_screenshot` | Read-only Playwright tier. | Screenshot paths sandboxed to workspace. |
 | `browser_click` / `_fill` | Interactive Playwright tier. | `requiresConfirmation: true` — fails closed in one-shot mode. |

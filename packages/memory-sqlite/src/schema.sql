@@ -69,6 +69,7 @@ CREATE INDEX IF NOT EXISTS sessions_activity_idx ON sessions(last_activity_at);
 
 CREATE TABLE IF NOT EXISTS cron_jobs (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  channel     TEXT,
   name        TEXT    NOT NULL,
   prompt      TEXT    NOT NULL,
   schedule    TEXT    NOT NULL,

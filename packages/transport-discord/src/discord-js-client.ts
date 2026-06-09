@@ -1,8 +1,8 @@
 import type { DiscordClient, DiscordClientFactory, DirectMessage } from "./client.ts";
 
-// Late binding wrapper around discord.js v14. Dynamic import so an
-// install without `discord.js` still type-checks — the error surfaces at
-// connect() time with a clear "install discord.js" message.
+// Late binding wrapper around discord.js v14. The package is a normal
+// dependency of transport-discord, but dynamic import keeps the boundary
+// narrow and makes accidental install corruption fail with a clear message.
 
 interface DiscordJsModule {
   Client: new (opts: { intents: number[]; partials?: number[] }) => DiscordJsClient;
@@ -46,7 +46,7 @@ export const discordJsClientFactory: DiscordClientFactory = {
       mod = (await import("discord.js")) as unknown as DiscordJsModule;
     } catch (err) {
       throw new Error(
-        `discord.js is not installed. Run \`pnpm add -w discord.js\` to enable the Discord transport. ` +
+        `discord.js could not be loaded. Run \`pnpm install\` from the repo root and retry. ` +
           `(${(err as Error).message})`,
       );
     }
