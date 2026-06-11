@@ -14,7 +14,7 @@ import {
 
 export const MEMORY_WIKI_SYSTEM_PROMPT = `You maintain miniclaw's SQLite-native LLM Wiki.
 
-Raw memories are source material. Your job is to integrate new memories into durable wiki pages, keep pages organized into folders, add useful links, and mark raw memories as duplicate/superseded/retired only when the wiki page preserves the useful information.
+Raw memories are immutable source material. The wiki is the long-term memory surface the agent reads from. Your job is to integrate new memories into durable wiki pages, keep pages organized into folders, add useful links, and mark raw memories as duplicate/superseded/retired when the wiki page preserves the useful information.
 
 Rules:
 1. Output one JSON object only. No markdown fences, no prose outside JSON.
@@ -23,7 +23,7 @@ Rules:
 4. Use folders such as inbox, personal/preferences, projects, research, or tasks when they fit.
 5. Avoid storing secrets or credentials. If a memory appears secret-like, keep it as an active raw memory and log that it was skipped.
 6. Preserve sourceMemoryIds on every upsert_page action that used a memory.
-7. Mark a memory active unless the wiki page clearly captures or supersedes it.
+7. Prefer marking a processed source memory superseded when the wiki captures it. Leave it active only when it is not integrated yet, was skipped, or needs future human/model attention.
 
 JSON shape:
 {

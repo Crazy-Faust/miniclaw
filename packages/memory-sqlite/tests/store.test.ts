@@ -93,14 +93,14 @@ describe("SqliteStore", () => {
     expect(store.search("alpha", 10, { folder: "personal" })).toEqual([]);
   });
 
-  it("stores wiki pages and returns mixed knowledge hits", () => {
-    store.add("fact", "alpha raw memory", ["raw"], { folder: "research" });
+  it("stores wiki pages and prefers them as long-term knowledge", () => {
+    const id = store.add("fact", "alpha raw memory", ["raw"], { folder: "research" });
     store.upsertWikiPage({
       path: "research/alpha",
       title: "Alpha",
       content: "alpha synthesized page",
       tags: ["synthesis"],
-      sourceMemoryIds: [1],
+      sourceMemoryIds: [id],
     });
 
     expect(store.readWikiPage("research/alpha")).toMatchObject({
@@ -112,7 +112,21 @@ describe("SqliteStore", () => {
       path: "research/alpha.md",
       title: "Alpha",
     });
-    expect(store.searchKnowledge("alpha", 10).map((h) => h.source)).toEqual(["memory", "wiki"]);
+    expect(store.searchKnowledge("alpha", 10).map((h) => h.source)).toEqual(["wiki"]);
+    expect(store.searchKnowledge("alpha", 10, { includeRawSources: false })).toHaveLength(1);
+  });
+
+  it("falls back to raw source memories while no wiki page matches", () => {
+    const id = store.add("fact", "beta raw memory", ["raw"], { folder: "research" });
+    expect(store.searchKnowledge("beta", 10)).toEqual([
+      expect.objectContaining({
+        source: "memory",
+        id,
+        title: `Raw source memory #${id}`,
+        content: "beta raw memory",
+      }),
+    ]);
+    expect(store.searchKnowledge("beta", 10, { includeRawSources: false })).toEqual([]);
   });
 
   it("claims, completes, and retries maintenance jobs", () => {

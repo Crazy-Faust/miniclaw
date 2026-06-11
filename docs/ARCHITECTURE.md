@@ -118,7 +118,7 @@ sequenceDiagram
   Agent->>Context: recordUser(message)
   Context->>Store: logTurn(user)
   Agent->>Context: prepare(message)
-  Context->>Store: recentMessages + memory.search
+  Context->>Store: recentMessages + knowledge.searchKnowledge (wiki-first) or memory.search fallback
   Context-->>Agent: system prompt + messages
   Agent->>LLM: chat(system, messages, tools)
   alt final answer

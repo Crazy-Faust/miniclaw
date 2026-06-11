@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { MemoryRecord, MemoryStore, SkillContext } from "@miniclaw/core";
+import type {
+  KnowledgeSearchOptions,
+  KnowledgeSearchResult,
+  KnowledgeStore,
+  MemoryRecord,
+  MemoryStore,
+  SkillContext,
+} from "@miniclaw/core";
 import { searchMemorySkill, writeMemorySkill } from "../src/index.ts";
 
 // Hand-rolled in-memory MemoryStore so the test asserts only what the skill
@@ -25,6 +32,18 @@ class FakeMemoryStore implements MemoryStore {
   }
 }
 
+class FakeKnowledgeMemoryStore extends FakeMemoryStore implements KnowledgeStore {
+  calls: KnowledgeSearchOptions[] = [];
+  constructor(private readonly knowledgeHits: KnowledgeSearchResult[]) {
+    super();
+  }
+
+  searchKnowledge(_query: string, _limit = 5, opts: KnowledgeSearchOptions = {}): KnowledgeSearchResult[] {
+    this.calls.push(opts);
+    return this.knowledgeHits;
+  }
+}
+
 function makeCtx(memory: MemoryStore): SkillContext {
   return {
     memory,
@@ -41,7 +60,7 @@ describe("writeMemorySkill", () => {
       makeCtx(mem),
     );
     expect(res.ok).toBe(true);
-    expect(res.output).toMatch(/stored memory #1/);
+    expect(res.output).toMatch(/stored memory source #1/);
     expect(mem.records).toHaveLength(1);
     expect(mem.records[0]).toMatchObject({
       kind: "preference",
@@ -95,6 +114,29 @@ describe("searchMemorySkill", () => {
     expect(res.ok).toBe(true);
     expect(res.output).toMatch(/#1 \[fact folder=inbox status=active editor\] user prefers helix editor/);
     expect(res.output).not.toContain("oat milk");
+  });
+
+  it("uses wiki-backed knowledge search when the store supports it", async () => {
+    const mem = new FakeKnowledgeMemoryStore([
+      {
+        source: "wiki",
+        path: "personal/preferences.md",
+        folder: "personal",
+        title: "Preferences",
+        content: "user prefers helix editor",
+        tags: ["editor"],
+      },
+    ]);
+
+    const res = await searchMemorySkill.execute(
+      { query: "helix", limit: 5, folder: "personal" },
+      makeCtx(mem),
+    );
+
+    expect(res.ok).toBe(true);
+    expect(mem.calls).toEqual([{ folder: "personal" }]);
+    expect(res.output).toContain("personal/preferences.md [wiki folder=personal tags=editor] Preferences");
+    expect(res.output).toContain("user prefers helix editor");
   });
 
   it("can restrict search to a folder", async () => {

@@ -23,7 +23,7 @@ describe("context-windowed ↔ memory-sqlite", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("prepare() injects matching memories from FTS5 into the system prompt", () => {
+  it("prepare() injects matching raw memories from FTS5 into the system prompt without KnowledgeStore", () => {
     store.add("preference", "user prefers the helix editor", ["editor"]);
     store.add("fact", "user lives in Berlin", []);
 
@@ -35,7 +35,7 @@ describe("context-windowed ↔ memory-sqlite", () => {
     });
 
     const { system, messages } = ctx.prepare("which editor do I use?");
-    expect(system).toMatch(/Relevant memories/);
+    expect(system).toMatch(/Relevant raw memories/);
     expect(system).toContain("helix");
     // Unrelated memory should not be injected for an editor query under FTS.
     expect(system).not.toContain("Berlin");
@@ -52,7 +52,7 @@ describe("context-windowed ↔ memory-sqlite", () => {
     });
 
     const { system, messages } = ctx.prepare("xylophone wavelength sky");
-    expect(system).not.toMatch(/Relevant memories/);
+    expect(system).not.toMatch(/Relevant raw memories/);
     expect(messages).toEqual([{ role: "user", content: "xylophone wavelength sky" }]);
   });
 

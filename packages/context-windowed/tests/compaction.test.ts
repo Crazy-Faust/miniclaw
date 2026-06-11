@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   AssistantTurn,
+  KnowledgeSearchResult,
   KnowledgeStore,
   LLMProvider,
   MemoryRecord,
@@ -27,26 +28,17 @@ class ScriptedSummarizer implements LLMProvider {
 }
 
 class FakeKnowledge implements KnowledgeStore {
-  searchKnowledge() {
-    return [
-      {
-        source: "memory" as const,
-        id: 1,
-        folder: "personal",
-        title: "Memory #1",
-        content: "user prefers helix",
-        tags: ["editor"],
-      },
-      {
-        source: "wiki" as const,
-        path: "personal/preferences.md",
-        folder: "personal",
-        title: "Preferences",
-        content: "Synthesized preference page",
-        tags: ["preferences"],
-      },
-    ];
-  }
+  constructor(private readonly hits: KnowledgeSearchResult[] = [
+    {
+      source: "wiki" as const,
+      path: "personal/preferences.md",
+      folder: "personal",
+      title: "Preferences",
+      content: "Synthesized preference page",
+      tags: ["preferences"],
+    },
+  ]) {}
+  searchKnowledge() { return this.hits; }
 }
 
 describe("approxTokens", () => {
@@ -82,7 +74,7 @@ describe("CompactingContextManager.prepareAsync — under budget", () => {
     expect(messages).toHaveLength(7);
   });
 
-  it("injects separate memory and wiki retrieval sections when KnowledgeStore is available", async () => {
+  it("injects wiki retrieval as the long-term memory surface when KnowledgeStore is available", async () => {
     const conversations = new InMemoryStore();
     const convId = conversations.newConversation();
     const mgr = new CompactingContextManager({
@@ -95,10 +87,35 @@ describe("CompactingContextManager.prepareAsync — under budget", () => {
 
     const { system } = await mgr.prepareAsync("editor?");
 
-    expect(system).toContain("Relevant memories retrieved");
-    expect(system).toContain("user prefers helix");
-    expect(system).toContain("Relevant wiki pages retrieved");
+    expect(system).toContain("Relevant long-term memory wiki pages retrieved");
     expect(system).toContain("personal/preferences.md");
+    expect(system).not.toContain("Relevant raw memory sources");
+  });
+
+  it("labels raw memory hits as fallback when no wiki page matches yet", async () => {
+    const conversations = new InMemoryStore();
+    const convId = conversations.newConversation();
+    const mgr = new CompactingContextManager({
+      memory: new NoOpMemory(),
+      conversations,
+      conversationId: convId,
+      summarizer: new ScriptedSummarizer("unused"),
+      knowledge: new FakeKnowledge([
+        {
+          source: "memory",
+          id: 1,
+          folder: "personal",
+          title: "Raw source memory #1",
+          content: "user prefers helix",
+          tags: ["editor"],
+        },
+      ]),
+    });
+
+    const { system } = await mgr.prepareAsync("editor?");
+
+    expect(system).toContain("Relevant raw memory sources retrieved because no wiki page matched yet");
+    expect(system).toContain("user prefers helix");
   });
 });
 

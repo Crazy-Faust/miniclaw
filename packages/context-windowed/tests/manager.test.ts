@@ -43,7 +43,7 @@ describe("WindowedContextManager.prepare", () => {
 
     const { system, messages } = mgr.prepare("hello");
     expect(system).toMatch(/miniclaw/);
-    expect(system).not.toMatch(/Relevant memories/);
+    expect(system).not.toMatch(/Relevant raw memories/);
     expect(messages).toEqual([{ role: "user", content: "hello" }]);
   });
 
@@ -57,7 +57,7 @@ describe("WindowedContextManager.prepare", () => {
     const mgr = new WindowedContextManager({ memory, conversations, conversationId: 1 });
 
     const { system } = mgr.prepare("what editor do I use?");
-    expect(system).toMatch(/Relevant memories/);
+    expect(system).toMatch(/Relevant raw memories/);
     expect(system).toContain("(#7, preference) user prefers helix");
     expect(system).toContain("(#8, fact) lives in Berlin");
   });

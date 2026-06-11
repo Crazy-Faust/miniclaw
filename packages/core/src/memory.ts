@@ -1,6 +1,6 @@
-// Long-term memory contract. Storage is intentionally untyped beyond
-// strings/tags so implementations (sqlite, postgres, files, vector) are free
-// to choose retrieval strategy.
+// Long-term memory contracts. MemoryStore is the raw/source-compatible layer
+// used by simple backends. KnowledgeStore is the compiled retrieval layer used
+// by wiki-aware backends.
 
 export interface MemoryRecord {
   id: number;
@@ -21,6 +21,14 @@ export interface MemoryAddOptions {
 
 export interface MemorySearchOptions {
   folder?: string;
+}
+
+export interface KnowledgeSearchOptions extends MemorySearchOptions {
+  /**
+   * Wiki-aware stores should prefer compiled wiki pages. Raw memory/source rows
+   * are useful as a fallback while maintenance has not integrated them yet.
+   */
+  includeRawSources?: boolean;
 }
 
 export interface MemoryStore {
@@ -122,7 +130,7 @@ export interface WikiStore {
 }
 
 export interface KnowledgeStore {
-  searchKnowledge(query: string, limit?: number): KnowledgeSearchResult[];
+  searchKnowledge(query: string, limit?: number, opts?: KnowledgeSearchOptions): KnowledgeSearchResult[];
 }
 
 export type MemoryMaintenanceJobStatus = "pending" | "running" | "completed" | "failed";

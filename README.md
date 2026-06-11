@@ -143,13 +143,15 @@ type /help for slash commands, /exit to quit
 > remember that my preferred editor is helix
 ```
 
-Calls `write_memory` and stores the fact in `~/.miniclaw/miniclaw.db`.
+Calls `write_memory`, stores the fact as raw source material in `~/.miniclaw/miniclaw.db`,
+and queues wiki maintenance when SQLite is in use.
 
 ```
 > what editor do I prefer?
 ```
 
-Calls `search_memory`, finds the entry, answers "helix".
+Calls `search_memory`, which reads the compiled memory wiki first and falls back to
+raw source rows until maintenance has integrated them.
 
 ```
 > list the files in the current directory
@@ -514,8 +516,8 @@ Per-package commands let two people work in two different packages without rebui
 
 | Skill | What it does | Security |
 |---|---|---|
-| `write_memory` | Persists a fact, preference, or note to long-term memory, optionally under a wiki folder. | None — pure write to the local DB. |
-| `search_memory` | Token-overlap (FTS5 in SQLite mode) search over active prior memories, optionally scoped by folder. | None — pure read. |
+| `write_memory` | Ingests a fact, preference, or note as raw source material for the long-term memory wiki, optionally under a wiki folder. | None — pure write to the local DB. |
+| `search_memory` | Searches the long-term memory wiki first, with raw source rows as fallback while wiki maintenance is pending. | None — pure read. |
 | `wiki_search` / `_read` / `_list` / `_maintain` | Search/read/list synthesized SQLite wiki pages and drain queued memory-to-wiki maintenance jobs. | Model maintenance writes only through typed store methods; raw memories are never auto-deleted. |
 | `read_file` | Reads a UTF-8 text file as a string (capped at 64KB). | Path must resolve under `MINICLAW_WORKSPACE`. Symlinks pointing out are refused. |
 | `list_directory` | Lists directory entries as JSON: `{name, kind, size}`. | Same workspace sandbox as `read_file`. |

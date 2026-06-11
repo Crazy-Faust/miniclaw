@@ -15,6 +15,7 @@ import type {
   CronJobRecord,
   CronStore,
   KnowledgeSearchResult,
+  KnowledgeSearchOptions,
   KnowledgeStore,
   MemoryAddOptions,
   MemoryMaintenanceJob,
@@ -351,26 +352,36 @@ export class SqliteStore
       .run(path, title, now, now);
   }
 
-  searchKnowledge(query: string, limit = 5): KnowledgeSearchResult[] {
-    const memoryLimit = Math.max(1, Math.ceil(limit / 2));
-    const wikiLimit = Math.max(1, limit - memoryLimit);
-    const memoryHits = this.search(query, memoryLimit).map<KnowledgeSearchResult>((m) => ({
+  searchKnowledge(
+    query: string,
+    limit = 5,
+    opts: KnowledgeSearchOptions = {},
+  ): KnowledgeSearchResult[] {
+    const folder = opts.folder ? normalizeMemoryFolderPath(opts.folder) : undefined;
+    const wikiSearchLimit = folder ? Math.max(limit * 4, 20) : limit;
+    const wikiHits = this.searchWiki(query, wikiSearchLimit)
+      .filter((w) => !folder || w.folder === folder)
+      .slice(0, limit)
+      .map<KnowledgeSearchResult>((w) => ({
+        source: "wiki",
+        path: w.path,
+        folder: w.folder,
+        title: w.title,
+        content: w.content,
+        tags: w.tags,
+      }));
+    if (wikiHits.length > 0 || opts.includeRawSources === false) {
+      return wikiHits;
+    }
+
+    return this.search(query, limit, { folder }).map<KnowledgeSearchResult>((m) => ({
       source: "memory",
       id: m.id,
       folder: m.folder ?? "inbox",
-      title: `Memory #${m.id}`,
+      title: `Raw source memory #${m.id}`,
       content: m.content,
       tags: m.tags,
     }));
-    const wikiHits = this.searchWiki(query, wikiLimit).map<KnowledgeSearchResult>((w) => ({
-      source: "wiki",
-      path: w.path,
-      folder: w.folder,
-      title: w.title,
-      content: w.content,
-      tags: w.tags,
-    }));
-    return [...memoryHits, ...wikiHits].slice(0, limit);
   }
 
   // ---- MemoryMaintenanceQueue ----

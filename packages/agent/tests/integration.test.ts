@@ -41,7 +41,7 @@ function buildAgent(store: SqliteStore, llm: LLMProvider) {
   registry.register(sqlQuerySkill);
   const convId = store.newConversation();
   const context = new WindowedContextManager({
-    memory: store, conversations: store, conversationId: convId,
+    memory: store, conversations: store, conversationId: convId, knowledge: store,
   });
   const agent = new Agent({
     llm, registry, context, memory: store, audit: store, dbPath: store.path,
@@ -94,9 +94,10 @@ describe("Agent integration (real wiring across packages)", () => {
     const trace = await agent.runTurn("what helix editor do I prefer?");
 
     expect(trace.finalText).toMatch(/helix/i);
-    // The 2nd-turn LLM call should have the memory injected into system.
+    // The 2nd-turn LLM call should have the source fallback injected until
+    // wiki maintenance has compiled it into a page.
     const turn2 = llm.calls.at(-1)!;
-    expect(turn2.system).toMatch(/Relevant memories/);
+    expect(turn2.system).toMatch(/Relevant raw memory sources/);
     expect(turn2.system).toContain("user prefers the helix editor");
   });
 
