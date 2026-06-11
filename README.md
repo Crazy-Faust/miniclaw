@@ -109,7 +109,11 @@ ANTHROPIC_API_KEY=sk-ant-...                # one of these three (whichever
 # MINICLAW_SMALL_API_KEY=sk-...             # optional explicit key
 # MINICLAW_SMALL_API_KEY_VAR=OPENAI_API_KEY # optional env var to read instead
 # MINICLAW_SMALL_BASE_URL=http://localhost:11434/v1
-# MINICLAW_SECURITY_MODE=medium             # off | medium | high
+# MINICLAW_SECURITY_MODE=off                # off | medium | high
+
+# --- Local wiki browser ---
+# MINICLAW_WIKI_BROWSER=on                  # on | off
+# MINICLAW_WIKI_BROWSER_PORT=0              # 0 = random available port
 
 # --- Data + sandbox ---
 # MINICLAW_HOME=/path/to/data               # SQLite DB, daemon socket, PID file, logs (default: ~/.miniclaw)
@@ -134,7 +138,8 @@ pnpm dev
 You should see:
 
 ```
-miniclaw — provider anthropic, model claude-sonnet-4-6, small primary, security medium, db /Users/you/.miniclaw/miniclaw.db, windowed context
+compacting context
+wiki browser: http://127.0.0.1:49152/?token=...
 skills: write_memory, search_memory, shell, sql_query, read_file, list_directory, write_file, apply_patch, fetch_url,
         sessions_list, sessions_history, sessions_send, sessions_spawn,
         reminder_add, cron_add, cron_list, cron_remove, cron_pause,
@@ -327,6 +332,8 @@ Long-term memory is wiki-first in SQLite mode:
 - `search_memory` and automatic context retrieval search synthesized wiki pages first. Active raw source rows are used as a fallback while no matching wiki page exists.
 
 `/dream` runs a bounded background review of recent conversations with truncated tool calls. It uses normal skills to write useful source memories or schedule clear follow-up work, and it is also covered by high-security tool gating when that mode is enabled.
+
+The local wiki browser starts automatically for long-running SQLite REPL/daemon sessions unless `MINICLAW_WIKI_BROWSER=off`. Open the URL shown in the REPL banner or `/status` to browse folders, pages, source-memory ids, tags, and search results. It binds to `127.0.0.1` by default and requires the random token in the URL or an `Authorization: Bearer ...` header.
 
 ---
 
@@ -572,7 +579,7 @@ Any skill can opt into a user confirmation prompt by setting `requiresConfirmati
 
 ### Security mode
 
-`MINICLAW_SECURITY_MODE` accepts `off`, `medium`, or `high`. `medium` is the default: schemas, filesystem sandboxing, skill allowlists, and per-skill confirmations apply. `off` disables only the extra LLM policy gate; hardcoded skill sandboxes still apply. `high` adds a small-LLM gate before every tool call; it sends the original user request plus the proposed tool name/args to the configured small model and denies calls that are unsafe or do not match the original intent. `high` requires `MINICLAW_SMALL_PROVIDER` and fails closed if the policy check cannot produce a valid allow/deny decision.
+`MINICLAW_SECURITY_MODE` accepts `off`, `medium`, or `high`. `off` is the default and disables only the extra LLM policy gate; hardcoded skill sandboxes, schemas, allowlists, and per-skill confirmations still apply. `medium` is reserved for stricter built-in policy and currently has the same extra gate behavior as `off`. `high` adds a small-LLM gate before every tool call; it sends the original user request plus the proposed tool name/args to the configured small model and denies calls that are unsafe or do not match the original intent. `high` requires `MINICLAW_SMALL_PROVIDER` and fails closed if the policy check cannot produce a valid allow/deny decision.
 
 ---
 
@@ -591,7 +598,11 @@ Any skill can opt into a user confirmation prompt by setting `requiresConfirmati
 | `MINICLAW_SMALL_API_KEY` | Explicit API key for the small provider. | provider key env |
 | `MINICLAW_SMALL_API_KEY_VAR` | Env var name to read for the small provider's API key. | provider default |
 | `MINICLAW_SMALL_BASE_URL` | OpenAI-compatible endpoint for the small provider. | `MINICLAW_BASE_URL` for OpenAI |
-| `MINICLAW_SECURITY_MODE` | `off` \| `medium` \| `high`. High uses the small LLM to approve every tool call against the original user request. | `medium` |
+| `MINICLAW_SECURITY_MODE` | `off` \| `medium` \| `high`. High uses the small LLM to approve every tool call against the original user request. | `off` |
+| `MINICLAW_WIKI_BROWSER` | `on` or `off`. Starts the local token-authenticated wiki browser for long-running SQLite sessions. | `on` |
+| `MINICLAW_WIKI_BROWSER_HOST` | Host/interface for the wiki browser. Keep this loopback unless you provide network-level controls. | `127.0.0.1` |
+| `MINICLAW_WIKI_BROWSER_PORT` | Port for the wiki browser. `0` asks the OS for a random available port. | `0` |
+| `MINICLAW_WIKI_BROWSER_TOKEN` | Optional fixed token for the wiki browser. If unset, a random token is generated each run. | random |
 | `MINICLAW_HOME` | Data directory for SQLite, daemon socket, PID file, daemon logs. | `~/.miniclaw` |
 | `MINICLAW_WORKSPACE` | Filesystem sandbox root for `read_file`, `list_directory`, `write_file`, `apply_patch`, `shell`, `browser_screenshot`. Also where `AGENTS.md`/`TOOLS.md` are looked up. | `process.cwd()` |
 | `MINICLAW_SOCKET` | Override the daemon's Unix socket path. | `$MINICLAW_HOME/miniclaw.sock` |

@@ -25,7 +25,7 @@ interface DiscordJsClient {
   user: { id: string } | null;
   login(token: string): Promise<string>;
   destroy(): Promise<void>;
-  once(event: "ready" | "clientReady", cb: () => void): void;
+  once(event: "clientReady", cb: () => void): void;
   on(event: "messageCreate", cb: (msg: DiscordJsMessage) => void): void;
   users: {
     fetch(userId: string): Promise<{ send(text: string): Promise<unknown> }>;
@@ -75,10 +75,7 @@ export const discordJsClientFactory: DiscordClientFactory = {
     return {
       async connect(token: string): Promise<void> {
         const ready = new Promise<void>((resolve) => {
-          // discord.js v14.16+ emits "clientReady" too — listen for both
-          // so we work across the renamed window.
-          client.once("ready", () => resolve());
-          client.once("clientReady" as "ready", () => resolve());
+          client.once("clientReady", () => resolve());
         });
         await client.login(token);
         await ready;

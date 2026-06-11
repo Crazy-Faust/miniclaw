@@ -73,9 +73,13 @@ export class CronScheduler {
           this.opts.store.markCronRan(job.id, now, nextRunAt);
         }
         try {
-          const session = this.opts.gateway.attach(channel);
-          const trace = await session.send(job.prompt);
-          await this.opts.onResult?.(job, channel, trace.finalText);
+          const session = this.opts.gateway.spawn(`cron:${job.id}:${now}`, "cron");
+          try {
+            const trace = await session.send(job.prompt);
+            await this.opts.onResult?.(job, channel, trace.finalText);
+          } finally {
+            this.opts.gateway.end(session.record.id);
+          }
         } catch (err) {
           // Cron failures are logged via the agent's audit log; swallow
           // here so one bad job doesn't take down the scheduler.

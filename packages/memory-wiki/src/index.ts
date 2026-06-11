@@ -8,3 +8,9 @@ export {
   type MemoryWikiRunResult,
   type MemoryWikiWorkerOpts,
 } from "./maintainer.ts";
+export {
+  handleWikiBrowserRequest,
+  startWikiBrowserServer,
+  type WikiBrowserHandle,
+  type WikiBrowserOpts,
+} from "./browser.ts";

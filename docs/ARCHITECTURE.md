@@ -26,6 +26,7 @@ flowchart TB
   memoryInmemory["@miniclaw/memory-inmemory"]
   memoryVector["@miniclaw/memory-vector"]
   memoryWiki["@miniclaw/memory-wiki<br/>SQLite LLM wiki maintainer"]
+  wikiBrowser["@miniclaw/memory-wiki<br/>local wiki browser"]
 
   skillsFs["@miniclaw/skills-fs"]
   skillsShell["@miniclaw/skills-shell"]
@@ -59,6 +60,7 @@ flowchart TB
   memoryInmemory --> core
   memoryVector --> core
   memoryWiki --> core
+  wikiBrowser --> core
 
   skillsFs --> core
   skillsShell --> core
@@ -153,6 +155,7 @@ flowchart LR
   daemon["Socket daemon<br/>JSON-lines protocol"]
   gateway["Gateway<br/>attach/spawn/list/history/end"]
   scheduler["CronScheduler<br/>polls cron_jobs"]
+  cronSession["isolated cron session<br/>cron:&lt;job&gt;:&lt;time&gt;"]
   store["SqliteStore<br/>sessions, conversations, audit, cron, allowlist"]
   agentFactory["agentFor(session)<br/>per-session ContextManager in daemon"]
   agent["Agent"]
@@ -161,6 +164,8 @@ flowchart LR
   daemon --> gateway
   discord --> gateway
   scheduler --> gateway
+  scheduler --> cronSession
+  cronSession --> gateway
   gateway --> store
   gateway --> agentFactory
   agentFactory --> agent
@@ -172,6 +177,7 @@ Notes:
 - In daemon mode, `agentFor(session)` creates a `CompactingContextManager` bound to the session conversation id.
 - In REPL mode, `sessions_*` skills currently use a gateway whose `agentFor` returns the same CLI agent/context for all sessions, so session isolation is weaker there than in daemon mode.
 - REPL and daemon both register sessions, cron, canvas, wiki, and dream skills after their runtime stores/runners exist.
+- Cron jobs deliver results back to their originating channel, but each job execution runs in a fresh ended `cron:<job-id>:<timestamp>` session. This prevents scheduled jobs from inheriting or extending a large Discord/CLI conversation context.
 
 ## Long-Term Memory Wiki
 
@@ -187,6 +193,7 @@ flowchart TB
   wiki["wiki_folders + wiki_pages + wiki_links + wiki_log"]
   search["search_memory / context retrieval<br/>KnowledgeStore.searchKnowledge"]
   prompt["System prompt<br/>wiki pages first, raw sources fallback"]
+  browser["Local wiki browser<br/>token-authenticated localhost UI"]
 
   write --> sqlite
   sqlite --> queue
@@ -200,6 +207,7 @@ flowchart TB
   wiki --> search
   sqlite --> search
   search --> prompt
+  wiki --> browser
 ```
 
 Raw `memories` rows are immutable source history. The synthesized wiki is the long-term memory surface the agent reads from. `searchKnowledge()` prefers matching wiki pages; active raw source rows are injected only while no wiki page matches yet.

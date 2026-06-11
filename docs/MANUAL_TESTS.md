@@ -27,7 +27,7 @@ At the prompt, type each line, hit enter:
 /exit
 ```
 
-**Expect:** `/help` lists commands including `/dream` and `/wiki_maintain`; `/skills` shows 20+ tools (sessions_*, cron_*, canvas_*, wiki_*, dream, write_memory, shell, …); `/status` prints provider/model/small model/security mode/db/conversation/workspace/skills count.
+**Expect:** `/help` lists commands including `/dream` and `/wiki_maintain`; `/skills` shows 20+ tools (sessions_*, cron_*, canvas_*, wiki_*, dream, write_memory, shell, …); `/status` prints provider/model/small model/security mode/wiki browser/db/conversation/workspace/skills count.
 
 **Proves:** REPL boots, env loads, registry assembles, meta-commands work.
 

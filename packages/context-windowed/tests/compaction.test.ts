@@ -140,7 +140,7 @@ describe("CompactingContextManager.prepareAsync — over budget", () => {
       conversations,
       conversationId: convId,
       summarizer,
-      tokenBudget: 500,
+      tokenBudget: 2_000,
       keepRecent: 4,
     });
 
@@ -194,6 +194,59 @@ describe("CompactingContextManager.prepareAsync — over budget", () => {
     conversations.logTurn(convId, "assistant", "assistant msg 20 " + "z".repeat(400));
     await mgr.prepareAsync("second");
     expect(summarizer.calls).toHaveLength(2);
+  });
+
+  it("chunks very large histories before asking the summarizer", async () => {
+    const conversations = new InMemoryStore();
+    const convId = conversations.newConversation();
+    for (let i = 0; i < 30; i++) {
+      conversations.logTurn(convId, "user", `huge user ${i} ` + "x".repeat(1_000));
+      conversations.logTurn(convId, "assistant", `huge assistant ${i} ` + "y".repeat(1_000));
+    }
+    const summarizer = new ScriptedSummarizer("chunk summary");
+    const mgr = new CompactingContextManager({
+      memory: new NoOpMemory(),
+      conversations,
+      conversationId: convId,
+      summarizer,
+      tokenBudget: 500,
+      keepRecent: 2,
+      summarizerInputBudget: 600,
+      summaryMessageMaxChars: 1_200,
+    });
+
+    const { system, messages } = await mgr.prepareAsync("status?");
+
+    expect(system).toContain("Summary of earlier conversation");
+    expect(messages.at(-1)).toEqual({ role: "user", content: "status?" });
+    expect(summarizer.calls.length).toBeGreaterThan(1);
+    for (const call of summarizer.calls) {
+      const content = (call.messages[0] as { role: "user"; content: string }).content;
+      expect(approxTokens(content)).toBeLessThanOrEqual(650);
+    }
+  });
+
+  it("drops older recent messages if even the recent window exceeds budget", async () => {
+    const conversations = new InMemoryStore();
+    const convId = conversations.newConversation();
+    for (let i = 0; i < 4; i++) {
+      conversations.logTurn(convId, "user", `recent user ${i} ` + "u".repeat(2_000));
+      conversations.logTurn(convId, "assistant", `recent assistant ${i} ` + "a".repeat(2_000));
+    }
+    const mgr = new CompactingContextManager({
+      memory: new NoOpMemory(),
+      conversations,
+      conversationId: convId,
+      summarizer: new ScriptedSummarizer("summary"),
+      tokenBudget: 120,
+      keepRecent: 4,
+      recentMessageMaxChars: 200,
+    });
+
+    const { messages } = await mgr.prepareAsync("next");
+
+    expect(messages.at(-1)).toEqual({ role: "user", content: "next" });
+    expect(messages.length).toBeLessThan(5);
   });
 
   it("sync prepare() does NOT summarize (escape hatch when caller can't await)", () => {

@@ -36,6 +36,8 @@ import {
   formatMaintenanceResult,
   MemoryWikiMaintainer,
   MemoryWikiWorker,
+  startWikiBrowserServer,
+  type WikiBrowserHandle,
 } from "@miniclaw/memory-wiki";
 import { createSessionsSkills } from "@miniclaw/skills-sessions";
 import { createCronSkills } from "@miniclaw/skills-cron";
@@ -119,6 +121,14 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
     : null;
   const wikiWorker = wikiMaintainer && smallLLM && !oneShot
     ? new MemoryWikiWorker({ maintainer: wikiMaintainer })
+    : null;
+  const wikiBrowser: WikiBrowserHandle | null = wikiStore && config.wikiBrowser.enabled && !oneShot
+    ? await startWikiBrowserServer({
+        wiki: wikiStore,
+        host: config.wikiBrowser.host,
+        port: config.wikiBrowser.port,
+        token: config.wikiBrowser.token,
+      })
     : null;
 
   const context: ContextManager = stateless
@@ -204,6 +214,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
       conversation: String(convId),
       workspace: config.workspaceRoot,
       security: describeSecurityMode(config),
+      wikiBrowser: wikiBrowser?.url ?? "(disabled)",
       skills: String(registry.list().length),
     }),
     dream: async () => {
@@ -221,6 +232,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
     ? undefined
     : (
         `${stateless ? "stateless context" : "compacting context"}\n` +
+        (wikiBrowser ? `wiki browser: ${wikiBrowser.url}\n` : "") +
         `type /help for slash commands, /exit to quit\n`
       );
 
@@ -245,6 +257,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
     await harness.run();
   } finally {
     wikiWorker?.stop();
+    await wikiBrowser?.stop();
     store.close();
   }
 }

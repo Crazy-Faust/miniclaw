@@ -22,6 +22,7 @@ import {
   formatMaintenanceResult,
   MemoryWikiMaintainer,
   MemoryWikiWorker,
+  startWikiBrowserServer,
 } from "@miniclaw/memory-wiki";
 import { createSessionsSkills } from "@miniclaw/skills-sessions";
 import { createCronSkills } from "@miniclaw/skills-cron";
@@ -115,6 +116,14 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
     wiki: store,
   });
   const wikiWorker = smallLLM ? new MemoryWikiWorker({ maintainer: wikiMaintainer }) : null;
+  const wikiBrowser = config.wikiBrowser.enabled
+    ? await startWikiBrowserServer({
+        wiki: store,
+        host: config.wikiBrowser.host,
+        port: config.wikiBrowser.port,
+        token: config.wikiBrowser.token,
+      })
+    : null;
 
   // The gateway needs an agent factory — but because the SessionRegistry
   // builds a fresh ContextManager per session, we close over a function
@@ -221,6 +230,7 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
         conversation: String(conversationId),
         workspace: config.workspaceRoot,
         security: describeSecurityMode(config),
+        wikiBrowser: wikiBrowser?.url ?? "(disabled)",
         skills: String(registry.list().length),
       }),
       usage: () => store.auditUsage(),
@@ -230,6 +240,7 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
     onShutdown: async () => {
       cron.stop();
       wikiWorker?.stop();
+      await wikiBrowser?.stop();
       for (const t of transports) {
         try { await t.stop(); } catch { /* shutdown is best-effort */ }
       }
@@ -241,6 +252,9 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
   process.stdout.write(
     `miniclaw daemon: listening on ${socketPath} (pid ${process.pid}, db ${config.dbPath})\n`,
   );
+  if (wikiBrowser) {
+    process.stdout.write(`miniclaw wiki browser: ${wikiBrowser.url}\n`);
+  }
 
   const shutdown = async (): Promise<void> => {
     process.stdout.write("\nminiclaw daemon: shutting down\n");

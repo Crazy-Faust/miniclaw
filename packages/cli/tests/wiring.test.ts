@@ -63,7 +63,8 @@ function fakeConfig(over: Partial<Config>): Config {
     apiKey: "sk-test",
     model: "test-model",
     workspaceRoot: "/tmp/x",
-    securityMode: "medium",
+    securityMode: "off",
+    wikiBrowser: { enabled: true, host: "127.0.0.1", port: 0 },
     ...over,
   };
 }
@@ -109,6 +110,7 @@ describe("buildToolGuard", () => {
   it("does not build an LLM guard for off or medium security", () => {
     expect(buildToolGuard(fakeConfig({ securityMode: "off" }), undefined)).toBeUndefined();
     expect(buildToolGuard(fakeConfig({ securityMode: "medium" }), undefined)).toBeUndefined();
+    expect(describeSecurityMode(fakeConfig({ securityMode: "off" }))).toBe("off");
     expect(describeSecurityMode(fakeConfig({ securityMode: "medium" }))).toBe("medium");
   });
 

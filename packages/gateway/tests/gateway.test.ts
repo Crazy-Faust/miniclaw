@@ -213,6 +213,34 @@ describe("CronScheduler", () => {
 
     expect(store.listCron()).toHaveLength(0);
     expect(delivered).toEqual([{ channel: "discord:dm:u1", text: "echo:remind trash" }]);
-    expect(store.listSessions()[0]!.channel).toBe("discord:dm:u1");
+    expect(store.listSessions()[0]).toMatchObject({
+      channel: "cron:1:2000",
+      agent: "cron",
+      status: "ended",
+    });
+  });
+
+  it("runs recurring jobs in isolated cron sessions instead of the delivery channel session", async () => {
+    const store = makeStore();
+    const seen: Array<{ channel: string; userMsg: string }> = [];
+    const gateway = new Gateway({
+      sessions: store,
+      conversations: store,
+      agentFor: (session) => ({
+        async runTurn(userMsg: string) {
+          seen.push({ channel: session.channel, userMsg });
+          return { toolCalls: [], finalText: "ok" };
+        },
+      } as unknown as Agent),
+    });
+    gateway.attach("discord:dm:u1");
+    store.addCron("brief", "send brief", "@every 1m", 1000, "discord:dm:u1");
+    const scheduler = new CronScheduler({ store, gateway, now: () => 2000 });
+
+    await scheduler.tick();
+
+    expect(seen).toEqual([{ channel: "cron:1:2000", userMsg: "send brief" }]);
+    const original = store.listSessions().find((s) => s.channel === "discord:dm:u1")!;
+    expect(original.status).toBe("active");
   });
 });
