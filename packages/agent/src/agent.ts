@@ -114,7 +114,9 @@ export class Agent {
 
   async runTurn(userMsg: string, hooks?: AgentTurnHooks): Promise<TurnTrace> {
     this.deps.context.recordUser(userMsg);
-    const { system, messages } = this.deps.context.prepare(userMsg);
+    const { system, messages } = this.deps.context.prepareAsync
+      ? await this.deps.context.prepareAsync(userMsg)
+      : this.deps.context.prepare(userMsg);
     const skillCtx: SkillContext = {
       memory: this.deps.memory,
       audit: this.deps.audit,

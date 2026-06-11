@@ -5,6 +5,7 @@ import type { Message } from "./llm.ts";
 
 export interface ContextManager {
   prepare(userMsg: string): { system: string; messages: Message[] };
+  prepareAsync?(userMsg: string): Promise<{ system: string; messages: Message[] }>;
   recordUser(content: string): void;
   recordAssistant(content: string, toolCallsJson?: string | null): void;
 }

@@ -3,7 +3,7 @@ import { AnthropicProvider } from "@miniclaw/llm-anthropic";
 import { GeminiProvider } from "@miniclaw/llm-gemini";
 import { OpenAIProvider } from "@miniclaw/llm-openai";
 
-import { buildLLM } from "../src/llm.ts";
+import { buildLLM, buildSmallLLM } from "../src/llm.ts";
 import { buildRegistry } from "../src/skills.ts";
 import type { Config } from "../src/config.ts";
 
@@ -82,5 +82,23 @@ describe("buildLLM", () => {
   it("returns a GeminiProvider for provider=gemini", () => {
     const llm = buildLLM(fakeConfig({ provider: "gemini" }));
     expect(llm).toBeInstanceOf(GeminiProvider);
+  });
+
+  it("returns undefined when no small LLM is configured", () => {
+    expect(buildSmallLLM(fakeConfig({}))).toBeUndefined();
+  });
+
+  it("builds the configured small LLM with the same provider interface", () => {
+    const llm = buildSmallLLM(
+      fakeConfig({
+        smallLLM: {
+          provider: "openai",
+          apiKey: "sk-small",
+          model: "small-model",
+          baseURL: "http://localhost:11434/v1",
+        },
+      }),
+    );
+    expect(llm).toBeInstanceOf(OpenAIProvider);
   });
 });

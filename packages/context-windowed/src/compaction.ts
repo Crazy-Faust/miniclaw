@@ -6,6 +6,7 @@ import type {
   Message,
   MessageRecord,
 } from "@miniclaw/core";
+import { loadPromptInjectionFiles } from "./manager.ts";
 
 /**
  * Approximate-token counter. Plenty of tokenizers exist (tiktoken, the
@@ -34,6 +35,12 @@ export interface CompactingContextOpts {
   keepRecent?: number;
   /** Number of memory hits to inject into the system prompt. Default 5. */
   memoryHits?: number;
+  /** Workspace root for AGENTS.md / TOOLS.md prompt files. */
+  workspaceRoot?: string;
+  /** Override prompt-injection file names. Defaults to AGENTS.md / TOOLS.md. */
+  promptFiles?: string[];
+  /** Per prompt file size cap, in bytes. Defaults to 32 KB. */
+  promptFileMaxBytes?: number;
   /** Override the model used for summarization. Otherwise the summarizer is
    *  called with whatever defaults it carries. */
   systemForSummarizer?: string;
@@ -85,6 +92,7 @@ export class CompactingContextManager implements ContextManager {
   private readonly keepRecent: number;
   private readonly memoryHits: number;
   private readonly summarizerSystem: string;
+  private readonly basePrompt: string;
 
   // Cache of (lastSummarizedMessageId → summary text). Lets repeat prepare()
   // calls for the same conversation reuse a summary if no compaction-worthy
@@ -102,6 +110,12 @@ export class CompactingContextManager implements ContextManager {
     this.keepRecent = opts.keepRecent ?? 6;
     this.memoryHits = opts.memoryHits ?? 5;
     this.summarizerSystem = opts.systemForSummarizer ?? DEFAULT_SUMMARIZER_SYSTEM;
+    const injected = opts.workspaceRoot
+      ? loadPromptInjectionFiles(opts.workspaceRoot, opts.promptFiles, opts.promptFileMaxBytes)
+      : "";
+    this.basePrompt = injected
+      ? `${COMPACTING_SYSTEM_PROMPT}\n\n${injected}`
+      : COMPACTING_SYSTEM_PROMPT;
   }
 
   /**
@@ -161,7 +175,7 @@ export class CompactingContextManager implements ContextManager {
     allMsgs: MessageRecord[],
   ): { system: string; messages: Message[] } {
     const hits = this.memory.search(userMsg, this.memoryHits);
-    let system = COMPACTING_SYSTEM_PROMPT;
+    let system = this.basePrompt;
     if (hits.length > 0) {
       system +=
         "\n\nRelevant memories retrieved for this turn:\n" +

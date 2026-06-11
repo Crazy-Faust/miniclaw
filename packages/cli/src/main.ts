@@ -4,11 +4,9 @@
 // the CLI from packages/cli/.
 import "./env.ts";
 
-import { homedir } from "node:os";
-
 import { Agent } from "@miniclaw/agent";
 import { StatelessContextManager } from "@miniclaw/context-stateless";
-import { WindowedContextManager } from "@miniclaw/context-windowed";
+import { CompactingContextManager } from "@miniclaw/context-windowed";
 import type {
   AuditSink,
   ContextManager,
@@ -38,7 +36,7 @@ import { Gateway } from "@miniclaw/gateway";
 import { parseArgs, USAGE, type Mode } from "./argv.ts";
 import { loadConfig, type Config } from "./config.ts";
 import { createOneShotIO, createReadlineIO } from "./io.ts";
-import { buildLLM } from "./llm.ts";
+import { buildLLM, buildSmallLLM } from "./llm.ts";
 import { makeSkillCommand } from "./make-skill/index.ts";
 import { buildRegistry } from "./skills.ts";
 import { runDaemon } from "./daemon.ts";
@@ -98,13 +96,16 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
   const convId = store.newConversation();
   const registry = buildRegistry();
   const llm = buildLLM(config);
+  const smallLLM = buildSmallLLM(config);
+  const summarizerLLM = smallLLM ?? llm;
 
   const context: ContextManager = stateless
     ? new StatelessContextManager()
-    : new WindowedContextManager({
+    : new CompactingContextManager({
         memory: store,
         conversations: store,
         conversationId: convId,
+        summarizer: summarizerLLM,
         workspaceRoot: config.workspaceRoot,
       });
 
@@ -155,6 +156,9 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
     status: () => ({
       provider: config.provider,
       model: config.model,
+      smallModel: config.smallLLM
+        ? `${config.smallLLM.provider}/${config.smallLLM.model}`
+        : `(primary ${config.provider}/${config.model})`,
       store: ephemeral ? "(ephemeral)" : config.dbPath,
       conversation: String(convId),
       workspace: config.workspaceRoot,
@@ -167,6 +171,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
     ? undefined
     : (
         `miniclaw — provider ${config.provider}, model ${config.model}, ` +
+        `small ${config.smallLLM ? `${config.smallLLM.provider}/${config.smallLLM.model}` : "primary"}, ` +
         `${ephemeral ? "ephemeral store" : `db ${config.dbPath}`}, ` +
         `${stateless ? "stateless context" : "windowed context"}\n` +
         `skills: ${registry.list().map((s) => s.name).join(", ")}\n` +
