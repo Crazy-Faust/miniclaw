@@ -220,12 +220,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
   const banner = oneShotIO
     ? undefined
     : (
-        `miniclaw — provider ${config.provider}, model ${config.model}, ` +
-        `small ${config.smallLLM ? `${config.smallLLM.provider}/${config.smallLLM.model}` : "primary"}, ` +
-        `security ${describeSecurityMode(config)}, ` +
-        `${ephemeral ? "ephemeral store" : `db ${config.dbPath}`}, ` +
-        `${stateless ? "stateless context" : "windowed context"}\n` +
-        `skills: ${registry.list().map((s) => s.name).join(", ")}\n` +
+        `${stateless ? "stateless context" : "compacting context"}\n` +
         `type /help for slash commands, /exit to quit\n`
       );
 
