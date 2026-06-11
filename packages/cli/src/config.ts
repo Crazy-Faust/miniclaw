@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 export type ProviderId = "anthropic" | "openai" | "gemini";
+export type SecurityMode = "off" | "medium" | "high";
 
 export interface Config {
   home: string;
@@ -14,6 +15,11 @@ export interface Config {
   baseURL?: string;
   /** Optional small LLM for cheap internal tasks such as compaction, summarization, dreaming, and wiki maintenance. */
   smallLLM?: LLMConfig;
+  /**
+   * Additional tool-call security mode. Medium is the default built-in
+   * schema/sandbox/confirmation behavior; high adds a small-LLM intent gate.
+   */
+  securityMode: SecurityMode;
   /** Filesystem sandbox root for skills-fs / skills-shell. Defaults to process.cwd(). */
   workspaceRoot: string;
 }
@@ -60,6 +66,7 @@ export function loadConfig(): Config {
 
   const workspaceRoot = resolve(process.env.MINICLAW_WORKSPACE ?? process.cwd());
   const smallLLM = loadSmallLLMConfig(process.env);
+  const securityMode = loadSecurityMode(process.env);
 
   return {
     home,
@@ -69,8 +76,15 @@ export function loadConfig(): Config {
     model: process.env.MINICLAW_MODEL ?? DEFAULT_MODELS[provider],
     baseURL: process.env.MINICLAW_BASE_URL,
     smallLLM,
+    securityMode,
     workspaceRoot,
   };
+}
+
+function loadSecurityMode(env: NodeJS.ProcessEnv): SecurityMode {
+  const raw = (env.MINICLAW_SECURITY_MODE ?? "medium").toLowerCase();
+  if (raw === "off" || raw === "medium" || raw === "high") return raw;
+  throw new Error(`MINICLAW_SECURITY_MODE must be one of: off, medium, high. Got: ${raw}`);
 }
 
 function loadSmallLLMConfig(env: NodeJS.ProcessEnv): LLMConfig | undefined {

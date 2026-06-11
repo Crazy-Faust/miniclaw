@@ -8,7 +8,7 @@ This document maps the current codebase at a package and runtime-flow level.
 flowchart TB
   core["@miniclaw/core<br/>interfaces and shared types"]
 
-  agent["@miniclaw/agent<br/>tool loop and audit dispatch"]
+  agent["@miniclaw/agent<br/>tool loop, audit dispatch, tool security gate"]
   dreaming["@miniclaw/dreaming<br/>background reflection"]
   harness["@miniclaw/harness<br/>REPL/meta-command orchestration"]
   gateway["@miniclaw/gateway<br/>sessions, daemon socket, cron runner"]
@@ -109,6 +109,7 @@ sequenceDiagram
   participant Agent
   participant Context as ContextManager
   participant LLM as LLMProvider
+  participant Guard as Optional Small-LLM Tool Guard
   participant Registry as SkillRegistry
   participant Skill
   participant Store as Memory/Conversation/Audit Store
@@ -130,6 +131,11 @@ sequenceDiagram
   else tool use
     LLM-->>Agent: tool calls
     Agent->>Registry: get skill
+    opt MINICLAW_SECURITY_MODE=high
+      Agent->>Guard: original user request + tool name/args
+      Guard-->>Agent: allow or deny
+    end
+    Agent->>Agent: Zod validate proposed args
     Agent->>Harness: optional confirmation for sensitive skill
     Agent->>Skill: execute(args, SkillContext)
     Skill-->>Agent: SkillResult
@@ -163,24 +169,57 @@ flowchart LR
 
 Notes:
 
-- In daemon mode, `agentFor(session)` creates a `WindowedContextManager` bound to the session conversation id.
+- In daemon mode, `agentFor(session)` creates a `CompactingContextManager` bound to the session conversation id.
 - In REPL mode, `sessions_*` skills currently use a gateway whose `agentFor` returns the same CLI agent/context for all sessions, so session isolation is weaker there than in daemon mode.
-- The daemon starts `CronScheduler`, but the current daemon skill registry only adds `sessions_*`; it imports but does not register `cron_*` or `canvas_*`.
+- REPL and daemon both register sessions, cron, canvas, wiki, and dream skills after their runtime stores/runners exist.
+
+## Long-Term Memory Wiki
+
+```mermaid
+flowchart TB
+  write["write_memory<br/>raw source ingest"]
+  sqlite["SqliteStore.add<br/>memories + memory_metadata"]
+  queue["memory_maintenance_jobs<br/>memory_write"]
+  worker["MemoryWikiWorker<br/>only auto-starts with small LLM"]
+  maintainer["MemoryWikiMaintainer<br/>strict JSON action planner"]
+  small["Small LLM<br/>or primary for manual wiki_maintain"]
+  actions["Validated actions<br/>upsert_page, add_link, mark_memory, append_log"]
+  wiki["wiki_folders + wiki_pages + wiki_links + wiki_log"]
+  search["search_memory / context retrieval<br/>KnowledgeStore.searchKnowledge"]
+  prompt["System prompt<br/>wiki pages first, raw sources fallback"]
+
+  write --> sqlite
+  sqlite --> queue
+  queue --> worker
+  queue --> maintainer
+  worker --> maintainer
+  maintainer --> small
+  small --> actions
+  actions --> sqlite
+  sqlite --> wiki
+  wiki --> search
+  sqlite --> search
+  search --> prompt
+```
+
+Raw `memories` rows are immutable source history. The synthesized wiki is the long-term memory surface the agent reads from. `searchKnowledge()` prefers matching wiki pages; active raw source rows are injected only while no wiki page matches yet.
 
 ## Skill Safety Gates
 
 ```mermaid
 flowchart TB
   model["Model tool call"]
-  zod["Zod parameter validation"]
   prehook["Optional pre-tool hook<br/>can veto or rewrite args"]
+  llmguard["Tool security gate<br/>high mode asks small LLM<br/>off/medium pass through"]
+  zod["Zod parameter validation"]
   confirm["User confirmation<br/>requiresConfirmation skills"]
   exec["Skill execution"]
   audit["Audit log"]
   result["Tool result to model"]
 
   model --> prehook
-  prehook --> zod
+  prehook --> llmguard
+  llmguard --> zod
   zod --> confirm
   confirm --> exec
   exec --> audit
@@ -211,6 +250,20 @@ erDiagram
   wiki_folders ||--o{ wiki_pages : contains
   wiki_pages ||--|| wiki_pages_fts : indexed_by
   wiki_pages ||--o{ wiki_links : links
+  wiki_pages ||--o{ wiki_log : described_by
+  memory_maintenance_jobs {
+    integer id
+    text type
+    integer memory_id
+    text status
+    integer attempts
+  }
+  wiki_log {
+    integer id
+    integer ts
+    text event_type
+    text message
+  }
   cron_jobs {
     integer id
     text name

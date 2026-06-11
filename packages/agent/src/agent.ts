@@ -49,6 +49,11 @@ export interface AgentDeps {
   ) => Promise<boolean>;
   /** Optional retry policy applied around LLM provider calls. */
   retry?: AgentRetryOptions;
+  /**
+   * Optional process-wide tool gate. Unlike per-turn hooks, this receives the
+   * original user message and runs before every actual skill execution.
+   */
+  toolGuard?: ToolGuard;
 }
 
 export interface PreToolUseDecision {
@@ -64,6 +69,16 @@ export interface PreToolUseDecision {
    */
   modifiedArgs?: unknown;
 }
+
+export interface ToolGuardInput {
+  userMessage: string;
+  call: { name: string; args: unknown };
+  skill: { name: string; description: string };
+}
+
+export type ToolGuard =
+  (input: ToolGuardInput) =>
+    Promise<PreToolUseDecision | void> | PreToolUseDecision | void;
 
 export interface AgentTurnHooks {
   /** Fires before each tool call dispatches. */
@@ -150,7 +165,7 @@ export class Agent {
       const results: ToolResultPart[] = [];
       for (const call of turn.toolCalls) {
         hooks?.onTool?.(call.name, call.args);
-        const { content, ok } = await this.executeOne(call, skillCtx, trace, hooks);
+        const { content, ok } = await this.executeOne(call, userMsg, skillCtx, trace, hooks);
         results.push({ toolCallId: call.id, toolName: call.name, content, isError: !ok });
       }
       // Persist what the model actually emitted — the real text, not a
@@ -199,6 +214,7 @@ export class Agent {
 
   private async executeOne(
     call: ToolCall,
+    userMsg: string,
     skillCtx: SkillContext,
     trace: TurnTrace,
     hooks?: AgentTurnHooks,
@@ -244,6 +260,27 @@ export class Agent {
       if (decision && decision.allow === false) {
         const reason = decision.reason ?? "tool call denied by PreToolUse hook";
         return await finish(skill.name, call.args, reason, false);
+      }
+      if (decision && decision.modifiedArgs !== undefined) {
+        proposedArgs = decision.modifiedArgs;
+      }
+    }
+
+    if (this.deps.toolGuard) {
+      let decision: PreToolUseDecision | void;
+      try {
+        decision = await this.deps.toolGuard({
+          userMessage: userMsg,
+          call: { name: call.name, args: proposedArgs },
+          skill: { name: skill.name, description: skill.description },
+        });
+      } catch (err) {
+        const reason = `tool call denied by security guard: ${(err as Error).message ?? String(err)}`;
+        return await finish(skill.name, proposedArgs, reason, false);
+      }
+      if (decision && decision.allow === false) {
+        const reason = decision.reason ?? "tool call denied by security guard";
+        return await finish(skill.name, proposedArgs, reason, false);
       }
       if (decision && decision.modifiedArgs !== undefined) {
         proposedArgs = decision.modifiedArgs;

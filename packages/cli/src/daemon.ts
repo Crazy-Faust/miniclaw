@@ -30,6 +30,7 @@ import { DiscordTransport } from "@miniclaw/transport-discord";
 import type { Transport } from "@miniclaw/core";
 
 import { buildLLM, buildSmallLLM } from "./llm.ts";
+import { buildToolGuard, describeSecurityMode } from "./security.ts";
 import { buildRegistry } from "./skills.ts";
 import type { Config } from "./config.ts";
 
@@ -105,6 +106,7 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
   const store = new SqliteStore(config.dbPath);
   const llm = buildLLM(config);
   const smallLLM = buildSmallLLM(config);
+  const toolGuard = buildToolGuard(config, smallLLM);
   const summarizerLLM = smallLLM ?? llm;
   const registry = buildRegistry();
   const wikiMaintainer = new MemoryWikiMaintainer({
@@ -138,6 +140,7 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
         dbPath: config.dbPath,
         channel: session.channel,
         workspaceRoot: config.workspaceRoot,
+        toolGuard,
       });
     },
   });
@@ -162,6 +165,7 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
     registry,
     dbPath: config.dbPath,
     workspaceRoot: config.workspaceRoot,
+    toolGuard,
   });
   if (!registry.has("dream")) registry.register(createDreamSkill(dreamer));
 
@@ -216,6 +220,7 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
         channel,
         conversation: String(conversationId),
         workspace: config.workspaceRoot,
+        security: describeSecurityMode(config),
         skills: String(registry.list().length),
       }),
       usage: () => store.auditUsage(),

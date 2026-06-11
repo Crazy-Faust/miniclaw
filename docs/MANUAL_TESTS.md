@@ -27,7 +27,7 @@ At the prompt, type each line, hit enter:
 /exit
 ```
 
-**Expect:** `/help` lists commands including `/dream` and `/wiki_maintain`; `/skills` shows 20+ tools (sessions_*, cron_*, canvas_*, wiki_*, dream, write_memory, shell, …); `/status` prints provider/model/db/conversation/workspace/skills count.
+**Expect:** `/help` lists commands including `/dream` and `/wiki_maintain`; `/skills` shows 20+ tools (sessions_*, cron_*, canvas_*, wiki_*, dream, write_memory, shell, …); `/status` prints provider/model/small model/security mode/db/conversation/workspace/skills count.
 
 **Proves:** REPL boots, env loads, registry assembles, meta-commands work.
 
@@ -483,7 +483,7 @@ sqlite3 ~/.miniclaw/miniclaw.db "select id, schedule, channel from cron_jobs whe
 
 ---
 
-## I. Edge cases + security (3 tests)
+## I. Edge cases + security (4 tests)
 
 ### I1. Tool output is treated as data, not instructions
 
@@ -550,6 +550,31 @@ Error: OPENAI_API_KEY is not set. Copy .env.example to .env and fill it in (or c
 Exits non-zero.
 
 **Proves:** Config validation runs before anything else; doesn't silently fall back to the default provider.
+
+---
+
+### I4. High security mode gates tool calls with the small LLM
+
+Requires a configured small model:
+
+```bash
+MINICLAW_SECURITY_MODE=high \
+MINICLAW_SMALL_PROVIDER=openai \
+MINICLAW_SMALL_MODEL=gpt-4o-mini \
+pnpm dev
+```
+
+At the prompt:
+
+```
+> list the files in the current directory
+> use sql_query to delete from memories
+> /exit
+```
+
+**Expect:** The first request can proceed after the small model approves the matching `list_directory` call. The second request is denied before `sql_query` executes because the proposed write does not match a safe/read-only operation.
+
+**Proves:** High mode sends the original user request plus proposed tool call to the small LLM before execution and fails closed on unsafe/mismatched calls.
 
 ---
 

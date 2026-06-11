@@ -16,7 +16,7 @@ import {
 import { WindowedContextManager } from "@miniclaw/context-windowed";
 import { SqliteStore } from "@miniclaw/memory-sqlite";
 
-import { Agent } from "../src/index.ts";
+import { Agent, type ToolGuard } from "../src/index.ts";
 
 class ScriptedLLM implements LLMProvider {
   private idx = 0;
@@ -28,12 +28,17 @@ class ScriptedLLM implements LLMProvider {
   }
 }
 
-function buildAgent(store: SqliteStore, llm: LLMProvider, registry: SkillRegistry) {
+function buildAgent(
+  store: SqliteStore,
+  llm: LLMProvider,
+  registry: SkillRegistry,
+  toolGuard?: ToolGuard,
+) {
   const convId = store.newConversation();
   const context = new WindowedContextManager({
     memory: store, conversations: store, conversationId: convId,
   });
-  return new Agent({ llm, registry, context, memory: store, audit: store, dbPath: store.path });
+  return new Agent({ llm, registry, context, memory: store, audit: store, dbPath: store.path, toolGuard });
 }
 
 describe("Agent — onPreToolUse hook", () => {
@@ -151,6 +156,88 @@ describe("Agent — onPreToolUse hook", () => {
     expect(seen).toEqual([{ name: "run", args: { x: 5 } }]);
     expect(trace.toolCalls[0]!.ok).toBe(true);
     expect(trace.toolCalls[0]!.output).toBe("ran 5");
+  });
+});
+
+describe("Agent — dependency toolGuard", () => {
+  let dir: string;
+  let store: SqliteStore;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "miniclaw-toolguard-"));
+    store = new SqliteStore(join(dir, "test.db"));
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("runs before execution, receives the original user request, and can deny", async () => {
+    const executed: unknown[] = [];
+    const t: Skill<{ path: string }> = {
+      name: "delete_file",
+      description: "deletes one file",
+      parameters: z.object({ path: z.string() }),
+      execute(args) { executed.push(args); return ok("deleted"); },
+    };
+    const registry = new SkillRegistry();
+    registry.register(t);
+    const llm = new ScriptedLLM([
+      {
+        kind: "tool_use",
+        text: "",
+        toolCalls: [{ id: "c1", name: "delete_file", args: { path: "/tmp/a" } }],
+      },
+      { kind: "final", text: "blocked" },
+    ]);
+    const seen: unknown[] = [];
+    const agent = buildAgent(store, llm, registry, (input) => {
+      seen.push(input);
+      return { allow: false, reason: "security denied delete_file: destructive mismatch" };
+    });
+
+    const trace = await agent.runTurn("please list files");
+
+    expect(executed).toEqual([]);
+    expect(seen).toEqual([
+      {
+        userMessage: "please list files",
+        call: { name: "delete_file", args: { path: "/tmp/a" } },
+        skill: { name: "delete_file", description: "deletes one file" },
+      },
+    ]);
+    expect(trace.toolCalls[0]).toMatchObject({
+      name: "delete_file",
+      ok: false,
+      output: "security denied delete_file: destructive mismatch",
+    });
+  });
+
+  it("evaluates args after the session pre-tool hook rewrites them", async () => {
+    const observed: unknown[] = [];
+    const t: Skill<{ x: number }> = {
+      name: "run",
+      description: "runs",
+      parameters: z.object({ x: z.number() }),
+      execute(args) { observed.push(args); return ok(`x=${args.x}`); },
+    };
+    const registry = new SkillRegistry();
+    registry.register(t);
+    const llm = new ScriptedLLM([
+      { kind: "tool_use", text: "", toolCalls: [{ id: "c1", name: "run", args: { x: 1 } }] },
+      { kind: "final", text: "done" },
+    ]);
+    const seen: unknown[] = [];
+    const agent = buildAgent(store, llm, registry, (input) => {
+      seen.push(input.call.args);
+      return { allow: true };
+    });
+
+    await agent.runTurn("go", {
+      onPreToolUse: () => ({ allow: true, modifiedArgs: { x: 2 } }),
+    });
+
+    expect(seen).toEqual([{ x: 2 }]);
+    expect(observed).toEqual([{ x: 2 }]);
   });
 });
 

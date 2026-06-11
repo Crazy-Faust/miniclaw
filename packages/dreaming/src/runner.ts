@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Agent, type AgentRetryOptions, type TurnTrace } from "@miniclaw/agent";
+import { Agent, type AgentRetryOptions, type ToolGuard, type TurnTrace } from "@miniclaw/agent";
 import {
   ok,
   SkillRegistry,
@@ -48,6 +48,7 @@ export interface DreamerOpts {
   channel?: string;
   allowedSkillNames?: readonly string[];
   retry?: AgentRetryOptions;
+  toolGuard?: ToolGuard;
 }
 
 export interface DreamRunOpts {
@@ -127,6 +128,7 @@ export class Dreamer {
       channel: this.opts.channel,
       workspaceRoot: this.opts.workspaceRoot,
       retry: this.opts.retry,
+      toolGuard: this.opts.toolGuard,
     });
     const trace = await agent.runTurn(userMsg);
     return {

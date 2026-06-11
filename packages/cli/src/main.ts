@@ -46,6 +46,7 @@ import { parseArgs, USAGE, type Mode } from "./argv.ts";
 import { loadConfig, type Config } from "./config.ts";
 import { createOneShotIO, createReadlineIO } from "./io.ts";
 import { buildLLM, buildSmallLLM } from "./llm.ts";
+import { buildToolGuard, describeSecurityMode } from "./security.ts";
 import { makeSkillCommand } from "./make-skill/index.ts";
 import { buildRegistry } from "./skills.ts";
 import { runDaemon } from "./daemon.ts";
@@ -106,6 +107,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
   const registry = buildRegistry();
   const llm = buildLLM(config);
   const smallLLM = buildSmallLLM(config);
+  const toolGuard = buildToolGuard(config, smallLLM);
   const summarizerLLM = smallLLM ?? llm;
   const wikiStore = store instanceof SqliteStore ? store : null;
   const wikiMaintainer = wikiStore
@@ -144,6 +146,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
     dbPath: ephemeral ? ":memory:" : config.dbPath,
     channel: "cli",
     workspaceRoot: config.workspaceRoot,
+    toolGuard,
     confirmTool: io.confirm
       ? async (call, skill) => {
           const argStr = JSON.stringify(call.args);
@@ -186,6 +189,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
     dbPath: ephemeral ? ":memory:" : config.dbPath,
     channel: "cli",
     workspaceRoot: config.workspaceRoot,
+    toolGuard,
   });
   registry.register(createDreamSkill(dreamer));
 
@@ -199,6 +203,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
       store: ephemeral ? "(ephemeral)" : config.dbPath,
       conversation: String(convId),
       workspace: config.workspaceRoot,
+      security: describeSecurityMode(config),
       skills: String(registry.list().length),
     }),
     dream: async () => {
@@ -217,6 +222,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
     : (
         `miniclaw — provider ${config.provider}, model ${config.model}, ` +
         `small ${config.smallLLM ? `${config.smallLLM.provider}/${config.smallLLM.model}` : "primary"}, ` +
+        `security ${describeSecurityMode(config)}, ` +
         `${ephemeral ? "ephemeral store" : `db ${config.dbPath}`}, ` +
         `${stateless ? "stateless context" : "windowed context"}\n` +
         `skills: ${registry.list().map((s) => s.name).join(", ")}\n` +

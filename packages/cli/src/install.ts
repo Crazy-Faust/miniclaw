@@ -50,9 +50,14 @@ function subsetEnv(): Record<string, string> {
     "MINICLAW_SMALL_API_KEY",
     "MINICLAW_SMALL_API_KEY_VAR",
     "MINICLAW_SMALL_BASE_URL",
+    "MINICLAW_SECURITY_MODE",
     "MINICLAW_HOME",
     "MINICLAW_SOCKET",
+    "MINICLAW_PID",
     "MINICLAW_WORKSPACE",
+    "MINICLAW_WEB_ALLOWLIST",
+    "MINICLAW_SEARCH_API_KEY",
+    "MINICLAW_SEARCH_PROVIDER",
     "MINICLAW_DISCORD_TOKEN",
   ];
   const out: Record<string, string> = {};
