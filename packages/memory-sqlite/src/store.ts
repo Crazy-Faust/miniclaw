@@ -319,6 +319,11 @@ export class SqliteStore
         .run(memoryId, Date.now());
     }
     const folder = patch.folder === undefined ? undefined : normalizeMemoryFolderPath(patch.folder);
+    const canonicalPagePath = patch.canonicalPagePath === undefined
+      ? undefined
+      : patch.canonicalPagePath === null
+        ? null
+        : normalizeWikiPagePath(patch.canonicalPagePath);
     const status = patch.status;
     if (status && !isMemoryStatus(status)) throw new Error(`invalid memory status: ${status}`);
     this.db
@@ -333,8 +338,8 @@ export class SqliteStore
       .run(
         folder ?? null,
         status ?? null,
-        patch.canonicalPagePath !== undefined ? 1 : 0,
-        patch.canonicalPagePath ?? null,
+        canonicalPagePath !== undefined ? 1 : 0,
+        canonicalPagePath ?? null,
         Date.now(),
         memoryId,
       );
