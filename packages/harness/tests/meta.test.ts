@@ -9,6 +9,7 @@ import {
   modelCommand,
   resumeCommand,
   type SessionControls,
+  wikiMaintainCommand,
 } from "../src/index.ts";
 
 class CapturingIO implements IOAdapter {
@@ -83,6 +84,27 @@ describe("/dream", () => {
     const { ctx, io } = makeCtx();
     await cmd.run("/dream", ctx);
     expect(io.text).toMatch(/model unavailable/);
+  });
+});
+
+describe("/wiki_maintain", () => {
+  it("invokes SessionControls.wikiMaintain() and prints the result", async () => {
+    const wikiMaintain = vi.fn(async () => "claimed=1 completed=1");
+    const cmd = wikiMaintainCommand({ wikiMaintain });
+    const { ctx, io } = makeCtx();
+    expect(cmd.matches("/wiki_maintain")).toBe(true);
+    expect(cmd.matches("/wiki_maintain now")).toBe(false);
+    await cmd.run("/wiki_maintain", ctx);
+    expect(wikiMaintain).toHaveBeenCalledTimes(1);
+    expect(io.text).toMatch(/claimed=1 completed=1/);
+  });
+
+  it("surfaces an error from wikiMaintain() without crashing the session", async () => {
+    const wikiMaintain = vi.fn(async () => { throw new Error("bad json"); });
+    const cmd = wikiMaintainCommand({ wikiMaintain });
+    const { ctx, io } = makeCtx();
+    await cmd.run("/wiki_maintain", ctx);
+    expect(io.text).toMatch(/bad json/);
   });
 });
 

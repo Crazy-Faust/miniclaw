@@ -19,6 +19,10 @@ export const sqlQuerySkill: Skill<z.infer<typeof Params>> = {
   description:
     "Run a read-only SQL query against miniclaw's local SQLite DB. " +
     "Tables: memories(id, kind, content, tags, created_at), " +
+    "memory_metadata(memory_id, folder_path, status, canonical_page_path, updated_at), " +
+    "wiki_folders(path, title, created_at, updated_at), " +
+    "wiki_pages(path, folder_path, title, content, tags, source_memory_ids, created_at, updated_at), " +
+    "wiki_log(id, ts, event_type, message, metadata_json), " +
     "conversations(id, started_at), " +
     "messages(id, conv_id, role, content, tool_calls_json, created_at), " +
     "audit_log(id, ts, skill, args_json, result_summary, ok). " +

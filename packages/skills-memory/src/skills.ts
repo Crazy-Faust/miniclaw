@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ok, type Skill } from "@miniclaw/core";
+import { normalizeMemoryFolderPath, ok, type Skill } from "@miniclaw/core";
 
 const WriteParams = z.object({
   content: z.string().min(1).describe("The fact or preference to remember, in plain English."),
@@ -8,6 +8,10 @@ const WriteParams = z.object({
     .default("note")
     .describe("Category label for the memory."),
   tags: z.array(z.string()).default([]).describe("Optional topical tags for retrieval."),
+  folder: z
+    .string()
+    .optional()
+    .describe("Optional relative wiki folder path, e.g. inbox, research/papers, personal/goals."),
 });
 
 export const writeMemorySkill: Skill<z.infer<typeof WriteParams>> = {
@@ -18,14 +22,26 @@ export const writeMemorySkill: Skill<z.infer<typeof WriteParams>> = {
     "context about themselves or their work).",
   parameters: WriteParams,
   execute(args, ctx) {
-    const id = ctx.memory.add(args.kind, args.content, args.tags);
-    return ok(`stored memory #${id} (kind=${args.kind}, tags=[${args.tags.join(", ")}])`);
+    let folder: string;
+    try {
+      folder = normalizeMemoryFolderPath(args.folder);
+    } catch (err) {
+      return { ok: false, output: `invalid folder: ${(err as Error).message}` };
+    }
+    const id = ctx.memory.add(args.kind, args.content, args.tags, { folder });
+    return ok(
+      `stored memory #${id} (kind=${args.kind}, folder=${folder}, tags=[${args.tags.join(", ")}])`,
+    );
   },
 };
 
 const SearchParams = z.object({
   query: z.string().min(1).describe("Natural-language query; matched via the MemoryStore."),
   limit: z.number().int().min(1).max(20).default(5),
+  folder: z
+    .string()
+    .optional()
+    .describe("Optional relative folder path to restrict memory search."),
 });
 
 export const searchMemorySkill: Skill<z.infer<typeof SearchParams>> = {
@@ -35,10 +51,19 @@ export const searchMemorySkill: Skill<z.infer<typeof SearchParams>> = {
     "Use this before answering any question that might depend on what you've been told before.",
   parameters: SearchParams,
   execute(args, ctx) {
-    const hits = ctx.memory.search(args.query, args.limit);
+    let folder: string | undefined;
+    try {
+      folder = args.folder ? normalizeMemoryFolderPath(args.folder) : undefined;
+    } catch (err) {
+      return { ok: false, output: `invalid folder: ${(err as Error).message}` };
+    }
+    const hits = ctx.memory.search(args.query, args.limit, { folder });
     if (hits.length === 0) return ok("no matching memories");
     const lines = hits.map(
-      (h) => `#${h.id} [${h.kind}${h.tags.length ? " " + h.tags.join(",") : ""}] ${h.content}`,
+      (h) =>
+        `#${h.id} [${h.kind} folder=${h.folder ?? "inbox"} status=${h.status ?? "active"}${
+          h.tags.length ? " " + h.tags.join(",") : ""
+        }] ${h.content}`,
     );
     return ok(lines.join("\n"));
   },

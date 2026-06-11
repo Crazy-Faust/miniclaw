@@ -4,7 +4,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Agent } from "@miniclaw/agent";
-import { WindowedContextManager } from "@miniclaw/context-windowed";
+import { CompactingContextManager } from "@miniclaw/context-windowed";
+import { createDreamSkill, Dreamer } from "@miniclaw/dreaming";
 import {
   CronScheduler,
   defaultPidPath,
@@ -16,13 +17,19 @@ import {
   writePid,
 } from "@miniclaw/gateway";
 import { SqliteStore } from "@miniclaw/memory-sqlite";
+import {
+  createWikiSkills,
+  formatMaintenanceResult,
+  MemoryWikiMaintainer,
+  MemoryWikiWorker,
+} from "@miniclaw/memory-wiki";
 import { createSessionsSkills } from "@miniclaw/skills-sessions";
 import { createCronSkills } from "@miniclaw/skills-cron";
 import { createCanvasSkills, CanvasStore } from "@miniclaw/skills-canvas";
 import { DiscordTransport } from "@miniclaw/transport-discord";
 import type { Transport } from "@miniclaw/core";
 
-import { buildLLM } from "./llm.ts";
+import { buildLLM, buildSmallLLM } from "./llm.ts";
 import { buildRegistry } from "./skills.ts";
 import type { Config } from "./config.ts";
 
@@ -97,7 +104,15 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
 
   const store = new SqliteStore(config.dbPath);
   const llm = buildLLM(config);
+  const smallLLM = buildSmallLLM(config);
+  const summarizerLLM = smallLLM ?? llm;
   const registry = buildRegistry();
+  const wikiMaintainer = new MemoryWikiMaintainer({
+    llm: smallLLM ?? llm,
+    queue: store,
+    wiki: store,
+  });
+  const wikiWorker = smallLLM ? new MemoryWikiWorker({ maintainer: wikiMaintainer }) : null;
 
   // The gateway needs an agent factory — but because the SessionRegistry
   // builds a fresh ContextManager per session, we close over a function
@@ -106,10 +121,13 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
     sessions: store,
     conversations: store,
     agentFor: (session) => {
-      const context = new WindowedContextManager({
+      const context = new CompactingContextManager({
         memory: store,
         conversations: store,
         conversationId: session.conversationId,
+        summarizer: summarizerLLM,
+        knowledge: store,
+        workspaceRoot: config.workspaceRoot,
       });
       return new Agent({
         llm,
@@ -133,6 +151,19 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
   for (const sk of createCanvasSkills({ store: canvasStore })) {
     if (!registry.has(sk.name)) registry.register(sk);
   }
+  for (const sk of createWikiSkills({ wiki: store, maintainer: wikiMaintainer })) {
+    if (!registry.has(sk.name)) registry.register(sk);
+  }
+  const dreamer = new Dreamer({
+    llm: summarizerLLM,
+    conversations: store,
+    memory: store,
+    audit: store,
+    registry,
+    dbPath: config.dbPath,
+    workspaceRoot: config.workspaceRoot,
+  });
+  if (!registry.has("dream")) registry.register(createDreamSkill(dreamer));
 
   const transports: Transport[] = [];
   const discordToken = process.env.MINICLAW_DISCORD_TOKEN;
@@ -168,6 +199,7 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
     },
   });
   cron.start();
+  wikiWorker?.start();
 
   const handle = startSocketDaemon({
     gateway,
@@ -176,6 +208,9 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
       status: (sessionId, channel, conversationId) => ({
         provider: config.provider,
         model: config.model,
+        smallModel: config.smallLLM
+          ? `${config.smallLLM.provider}/${config.smallLLM.model}`
+          : `(primary ${config.provider}/${config.model})`,
         store: config.dbPath,
         session: sessionId,
         channel,
@@ -184,9 +219,11 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
         skills: String(registry.list().length),
       }),
       usage: () => store.auditUsage(),
+      wikiMaintain: async () => formatMaintenanceResult(await wikiMaintainer.drain()),
     },
     onShutdown: async () => {
       cron.stop();
+      wikiWorker?.stop();
       for (const t of transports) {
         try { await t.stop(); } catch { /* shutdown is best-effort */ }
       }

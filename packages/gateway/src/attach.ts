@@ -123,6 +123,14 @@ export async function socketAttachIO(opts: SocketAttachOpts): Promise<void> {
       }
       return;
     }
+    if (type === "wiki_maintain") {
+      output.write(`${String(msg.text ?? "")}\n`);
+      if (waiter) {
+        waiter.resolve();
+        waiter = null;
+      }
+      return;
+    }
   }
 
   try {
@@ -136,7 +144,11 @@ export async function socketAttachIO(opts: SocketAttachOpts): Promise<void> {
       const trimmed = line.trim();
       if (trimmed.length === 0) continue;
       if (trimmed === "/exit" || trimmed === "/quit") break;
-      const ctl = trimmed === "/status" ? "status" : trimmed === "/usage" ? "usage" : null;
+      const ctl =
+        trimmed === "/status" ? "status" :
+        trimmed === "/usage" ? "usage" :
+        trimmed === "/wiki_maintain" ? "wiki_maintain" :
+        null;
       if (ctl) {
         socket.write(JSON.stringify({ type: ctl }) + "\n");
         await new Promise<void>((resolve, reject) => {

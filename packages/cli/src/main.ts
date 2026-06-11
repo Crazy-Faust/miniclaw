@@ -26,10 +26,17 @@ import {
   skillsCommand,
   statusCommand,
   usageCommand,
+  wikiMaintainCommand,
   type SessionControls,
 } from "@miniclaw/harness";
 import { InMemoryStore } from "@miniclaw/memory-inmemory";
 import { SqliteStore } from "@miniclaw/memory-sqlite";
+import {
+  createWikiSkills,
+  formatMaintenanceResult,
+  MemoryWikiMaintainer,
+  MemoryWikiWorker,
+} from "@miniclaw/memory-wiki";
 import { createSessionsSkills } from "@miniclaw/skills-sessions";
 import { createCronSkills } from "@miniclaw/skills-cron";
 import { createCanvasSkills, CanvasStore } from "@miniclaw/skills-canvas";
@@ -100,6 +107,17 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
   const llm = buildLLM(config);
   const smallLLM = buildSmallLLM(config);
   const summarizerLLM = smallLLM ?? llm;
+  const wikiStore = store instanceof SqliteStore ? store : null;
+  const wikiMaintainer = wikiStore
+    ? new MemoryWikiMaintainer({
+        llm: smallLLM ?? llm,
+        queue: wikiStore,
+        wiki: wikiStore,
+      })
+    : null;
+  const wikiWorker = wikiMaintainer && smallLLM && !oneShot
+    ? new MemoryWikiWorker({ maintainer: wikiMaintainer })
+    : null;
 
   const context: ContextManager = stateless
     ? new StatelessContextManager()
@@ -108,6 +126,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
         conversations: store,
         conversationId: convId,
         summarizer: summarizerLLM,
+        knowledge: wikiStore ?? undefined,
         workspaceRoot: config.workspaceRoot,
       });
 
@@ -153,6 +172,11 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
   for (const sk of createCanvasSkills({ store: canvasStore })) {
     registry.register(sk);
   }
+  if (wikiStore) {
+    for (const sk of createWikiSkills({ wiki: wikiStore, maintainer: wikiMaintainer ?? undefined })) {
+      registry.register(sk);
+    }
+  }
   const dreamer = new Dreamer({
     llm: summarizerLLM,
     conversations: store,
@@ -181,6 +205,10 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
       const result = await dreamer.run();
       return formatDreamRunResult(result);
     },
+    wikiMaintain: async () => {
+      if (!wikiMaintainer) return "(wiki maintenance is only available with SQLite storage)";
+      return formatMaintenanceResult(await wikiMaintainer.drain());
+    },
     usage: () => store.auditUsage(),
   };
 
@@ -202,6 +230,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
         skillsCommand(registry),
         memoriesCommand(store),
         dreamCommand(controls),
+        wikiMaintainCommand(controls),
         statusCommand(controls),
         resetCommand(controls),
         usageCommand(controls),
@@ -211,8 +240,10 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
   const harness = new Harness({ agent, io, banner, metaCommands });
 
   try {
+    wikiWorker?.start();
     await harness.run();
   } finally {
+    wikiWorker?.stop();
     store.close();
   }
 }

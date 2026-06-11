@@ -26,6 +26,7 @@
     "@miniclaw/llm-anthropic": "workspace:*",
     "@miniclaw/llm-gemini": "workspace:*",
     "@miniclaw/llm-openai": "workspace:*",
+    "@miniclaw/memory-wiki": "workspace:*",
     "@miniclaw/memory-inmemory": "workspace:*",
     "@miniclaw/memory-sqlite": "workspace:*",
     "@miniclaw/gateway": "workspace:*",

@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import Database from "better-sqlite3";
 import { SqliteStore } from "../src/index.ts";
 
 describe("SqliteStore", () => {
@@ -26,12 +27,107 @@ describe("SqliteStore", () => {
     expect(recent[0]!.tags).toEqual(["ui"]);
   });
 
+  it("migrates existing memories into inbox metadata", () => {
+    store.close();
+    const dbPath = join(dir, "legacy.db");
+    const db = new Database(dbPath);
+    db.exec(`
+      CREATE TABLE memories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        content TEXT NOT NULL,
+        tags TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO memories(kind, content, tags, created_at)
+      VALUES ('fact', 'legacy memory', '', 123);
+    `);
+    db.close();
+
+    store = new SqliteStore(dbPath);
+
+    expect(store.listRecent(1)[0]).toMatchObject({
+      content: "legacy memory",
+      folder: "inbox",
+      status: "active",
+    });
+  });
+
+  it("adds folder metadata and enqueues one maintenance job for memory writes", () => {
+    const id = store.add("fact", "paper alpha", ["research"], { folder: "research/papers" });
+    expect(store.listRecent(1)[0]).toMatchObject({
+      id,
+      folder: "research/papers",
+      status: "active",
+    });
+
+    const jobs = store.pendingMemoryMaintenanceJobs();
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({
+      type: "memory_write",
+      memoryId: id,
+      status: "pending",
+    });
+    expect(jobs[0]!.payload).toMatchObject({ folder: "research/papers", content: "paper alpha" });
+  });
+
+  it("rejects invalid memory folders", () => {
+    expect(() => store.add("fact", "bad", [], { folder: "/absolute" })).toThrow(/relative/);
+    expect(() => store.add("fact", "bad", [], { folder: "../escape" })).toThrow(/\.\./);
+  });
+
   it("FTS5 search finds inserted content", () => {
     store.add("fact", "user prefers the helix editor");
     store.add("fact", "user prefers oat milk in coffee");
     const hits = store.search("helix");
     expect(hits).toHaveLength(1);
     expect(hits[0]!.content).toContain("helix");
+  });
+
+  it("search can be restricted by folder and skips retired memories", () => {
+    const active = store.add("fact", "alpha in research", [], { folder: "research" });
+    const other = store.add("fact", "alpha in personal", [], { folder: "personal" });
+    store.updateMemoryMetadata(other, { status: "retired" });
+
+    expect(store.search("alpha", 10).map((m) => m.id)).toEqual([active]);
+    expect(store.search("alpha", 10, { folder: "personal" })).toEqual([]);
+  });
+
+  it("stores wiki pages and returns mixed knowledge hits", () => {
+    store.add("fact", "alpha raw memory", ["raw"], { folder: "research" });
+    store.upsertWikiPage({
+      path: "research/alpha",
+      title: "Alpha",
+      content: "alpha synthesized page",
+      tags: ["synthesis"],
+      sourceMemoryIds: [1],
+    });
+
+    expect(store.readWikiPage("research/alpha")).toMatchObject({
+      path: "research/alpha.md",
+      folder: "research",
+      title: "Alpha",
+    });
+    expect(store.searchWiki("synthesized", 5)[0]).toMatchObject({
+      path: "research/alpha.md",
+      title: "Alpha",
+    });
+    expect(store.searchKnowledge("alpha", 10).map((h) => h.source)).toEqual(["memory", "wiki"]);
+  });
+
+  it("claims, completes, and retries maintenance jobs", () => {
+    const id = store.add("note", "queued");
+    const claimed = store.claimMemoryMaintenanceJobs(10, "worker-1");
+    expect(claimed).toHaveLength(1);
+    expect(claimed[0]).toMatchObject({ memoryId: id, attempts: 1, status: "running" });
+
+    store.failMemoryMaintenanceJob(claimed[0]!.id, "bad json", 1);
+    const retry = store.pendingMemoryMaintenanceJobs(10);
+    expect(retry[0]).toMatchObject({ id: claimed[0]!.id, status: "pending", lastError: "bad json" });
+
+    const claimedAgain = store.claimMemoryMaintenanceJobs(10, "worker-1", Date.now() + 10);
+    store.completeMemoryMaintenanceJob(claimedAgain[0]!.id, "ok");
+    expect(store.pendingMemoryMaintenanceJobs()).toHaveLength(0);
   });
 
   it("search returns multiple hits when relevant", () => {

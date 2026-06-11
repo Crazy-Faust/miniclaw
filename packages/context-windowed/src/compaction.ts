@@ -1,6 +1,7 @@
 import type {
   ContextManager,
   ConversationStore,
+  KnowledgeStore,
   LLMProvider,
   MemoryStore,
   Message,
@@ -35,6 +36,8 @@ export interface CompactingContextOpts {
   keepRecent?: number;
   /** Number of memory hits to inject into the system prompt. Default 5. */
   memoryHits?: number;
+  /** Optional synthesized knowledge search across raw memories + wiki pages. */
+  knowledge?: KnowledgeStore;
   /** Workspace root for AGENTS.md / TOOLS.md prompt files. */
   workspaceRoot?: string;
   /** Override prompt-injection file names. Defaults to AGENTS.md / TOOLS.md. */
@@ -91,6 +94,7 @@ export class CompactingContextManager implements ContextManager {
   private readonly tokenBudget: number;
   private readonly keepRecent: number;
   private readonly memoryHits: number;
+  private readonly knowledge: KnowledgeStore | undefined;
   private readonly summarizerSystem: string;
   private readonly basePrompt: string;
 
@@ -109,6 +113,7 @@ export class CompactingContextManager implements ContextManager {
     this.tokenBudget = opts.tokenBudget ?? 4000;
     this.keepRecent = opts.keepRecent ?? 6;
     this.memoryHits = opts.memoryHits ?? 5;
+    this.knowledge = opts.knowledge;
     this.summarizerSystem = opts.systemForSummarizer ?? DEFAULT_SUMMARIZER_SYSTEM;
     const injected = opts.workspaceRoot
       ? loadPromptInjectionFiles(opts.workspaceRoot, opts.promptFiles, opts.promptFileMaxBytes)
@@ -174,12 +179,28 @@ export class CompactingContextManager implements ContextManager {
     userMsg: string,
     allMsgs: MessageRecord[],
   ): { system: string; messages: Message[] } {
-    const hits = this.memory.search(userMsg, this.memoryHits);
     let system = this.basePrompt;
-    if (hits.length > 0) {
-      system +=
-        "\n\nRelevant memories retrieved for this turn:\n" +
-        hits.map((h) => `- (#${h.id}, ${h.kind}) ${h.content}`).join("\n");
+    if (this.knowledge) {
+      const hits = this.knowledge.searchKnowledge(userMsg, this.memoryHits);
+      const memories = hits.filter((h) => h.source === "memory");
+      const wiki = hits.filter((h) => h.source === "wiki");
+      if (memories.length > 0) {
+        system +=
+          "\n\nRelevant memories retrieved for this turn:\n" +
+          memories.map((h) => `- (#${h.id}, ${h.folder}) ${h.content}`).join("\n");
+      }
+      if (wiki.length > 0) {
+        system +=
+          "\n\nRelevant wiki pages retrieved for this turn:\n" +
+          wiki.map((h) => `- (${h.path}, ${h.folder}) ${h.title}: ${h.content}`).join("\n");
+      }
+    } else {
+      const hits = this.memory.search(userMsg, this.memoryHits);
+      if (hits.length > 0) {
+        system +=
+          "\n\nRelevant memories retrieved for this turn:\n" +
+          hits.map((h) => `- (#${h.id}, ${h.kind}) ${h.content}`).join("\n");
+      }
     }
     const conv = filterChatMessages(allMsgs).map(toMessage);
     return { system, messages: [...conv, { role: "user", content: userMsg }] };

@@ -121,6 +121,26 @@ export function dreamCommand(controls: SessionControls): MetaCommand {
   };
 }
 
+export function wikiMaintainCommand(controls: SessionControls): MetaCommand {
+  return {
+    name: "/wiki_maintain",
+    description: "Drain queued memory-to-wiki maintenance jobs.",
+    matches: (line) => line === "/wiki_maintain",
+    async run(_line, ctx) {
+      if (!controls.wikiMaintain) {
+        ctx.io.write("  (this session doesn't support /wiki_maintain)\n");
+        return;
+      }
+      try {
+        const result = await controls.wikiMaintain();
+        ctx.io.write(indentBlock(result) + "\n");
+      } catch (err) {
+        ctx.io.write(`  wiki maintenance failed: ${(err as Error).message}\n`);
+      }
+    },
+  };
+}
+
 export function modelCommand(controls: SessionControls): MetaCommand {
   return {
     name: "/model",

@@ -25,6 +25,7 @@ flowchart TB
   memorySqlite["@miniclaw/memory-sqlite<br/>SQLite persistence"]
   memoryInmemory["@miniclaw/memory-inmemory"]
   memoryVector["@miniclaw/memory-vector"]
+  memoryWiki["@miniclaw/memory-wiki<br/>SQLite LLM wiki maintainer"]
 
   skillsFs["@miniclaw/skills-fs"]
   skillsShell["@miniclaw/skills-shell"]
@@ -57,6 +58,7 @@ flowchart TB
   memorySqlite --> core
   memoryInmemory --> core
   memoryVector --> core
+  memoryWiki --> core
 
   skillsFs --> core
   skillsShell --> core
@@ -85,6 +87,7 @@ flowchart TB
   cli --> llmGemini
   cli --> memorySqlite
   cli --> memoryInmemory
+  cli --> memoryWiki
   cli --> skillsFs
   cli --> skillsShell
   cli --> skillsDb
@@ -203,6 +206,11 @@ erDiagram
   conversations ||--o{ messages : contains
   sessions }o--|| conversations : "conversation_id"
   memories ||--|| memories_fts : indexed_by
+  memories ||--|| memory_metadata : annotated_by
+  memories ||--o{ memory_maintenance_jobs : triggers
+  wiki_folders ||--o{ wiki_pages : contains
+  wiki_pages ||--|| wiki_pages_fts : indexed_by
+  wiki_pages ||--o{ wiki_links : links
   cron_jobs {
     integer id
     text name

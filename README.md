@@ -2,7 +2,7 @@
 
 A lightweight, local-first AI agent. It maps natural-language requests to a small set of safe tools, runs them on your machine, and keeps an auditable trail of everything in SQLite.
 
-The repo is a **pnpm workspace** of 26 small packages. Every major subsystem (LLM provider, memory store, context strategy, skill, I/O, transport) is its own package behind an interface in `@miniclaw/core`, so each can be swapped or extended independently.
+The repo is a **pnpm workspace** of 28 small packages. Every major subsystem (LLM provider, memory store, context strategy, skill, I/O, transport) is its own package behind an interface in `@miniclaw/core`, so each can be swapped or extended independently.
 
 You can use miniclaw three ways:
 
@@ -347,6 +347,7 @@ Restart the agent (`/exit` and `pnpm dev` again, or `daemon stop` + `daemon star
 /reset          Start a fresh conversation (alias of /clear).
 /compact        Summarize older turns to free up context budget.
 /dream          Review recent conversations and extract useful memories/tasks.
+/wiki_maintain  Drain queued memory-to-wiki maintenance jobs.
 /make_skill     Scaffold a brand-new skill package and register it.
 /exit, /quit    End the session.
 ```
@@ -430,6 +431,7 @@ packages/
 ├── memory-sqlite/        SqliteStore — persistent. Implements every store interface.
 ├── memory-inmemory/      InMemoryStore — no disk, for tests / ephemeral runs.
 ├── memory-vector/        Embedding-based memory retrieval (alternative to FTS5).
+├── memory-wiki/          LLM-maintained SQLite wiki over raw memories.
 │
 │  ── LLM providers
 ├── llm-anthropic/        Claude.
@@ -512,8 +514,9 @@ Per-package commands let two people work in two different packages without rebui
 
 | Skill | What it does | Security |
 |---|---|---|
-| `write_memory` | Persists a fact, preference, or note to long-term memory. | None — pure write to the local DB. |
-| `search_memory` | Token-overlap (FTS5 in SQLite mode) search over prior memories. | None — pure read. |
+| `write_memory` | Persists a fact, preference, or note to long-term memory, optionally under a wiki folder. | None — pure write to the local DB. |
+| `search_memory` | Token-overlap (FTS5 in SQLite mode) search over active prior memories, optionally scoped by folder. | None — pure read. |
+| `wiki_search` / `_read` / `_list` / `_maintain` | Search/read/list synthesized SQLite wiki pages and drain queued memory-to-wiki maintenance jobs. | Model maintenance writes only through typed store methods; raw memories are never auto-deleted. |
 | `read_file` | Reads a UTF-8 text file as a string (capped at 64KB). | Path must resolve under `MINICLAW_WORKSPACE`. Symlinks pointing out are refused. |
 | `list_directory` | Lists directory entries as JSON: `{name, kind, size}`. | Same workspace sandbox as `read_file`. |
 | `write_file` | Write or overwrite a UTF-8 text file. | Workspace-sandboxed. |

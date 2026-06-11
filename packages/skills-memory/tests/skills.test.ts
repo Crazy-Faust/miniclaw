@@ -8,15 +8,16 @@ class FakeMemoryStore implements MemoryStore {
   records: MemoryRecord[] = [];
   private seq = 0;
 
-  add(kind: string, content: string, tags: string[] = []): number {
+  add(kind: string, content: string, tags: string[] = [], opts: { folder?: string } = {}): number {
     const id = ++this.seq;
-    this.records.push({ id, kind, content, tags, createdAt: Date.now() });
+    this.records.push({ id, kind, content, tags, folder: opts.folder ?? "inbox", createdAt: Date.now() });
     return id;
   }
-  search(query: string, limit = 5): MemoryRecord[] {
+  search(query: string, limit = 5, opts: { folder?: string } = {}): MemoryRecord[] {
     const q = query.toLowerCase();
     return this.records
       .filter((r) => r.content.toLowerCase().includes(q))
+      .filter((r) => !opts.folder || r.folder === opts.folder)
       .slice(0, limit);
   }
   listRecent(limit: number): MemoryRecord[] {
@@ -46,7 +47,29 @@ describe("writeMemorySkill", () => {
       kind: "preference",
       content: "user likes helix",
       tags: ["editor"],
+      folder: "inbox",
     });
+  });
+
+  it("passes an optional folder through to the MemoryStore", async () => {
+    const mem = new FakeMemoryStore();
+    const res = await writeMemorySkill.execute(
+      { content: "paper note", kind: "note", tags: [], folder: "research/papers" },
+      makeCtx(mem),
+    );
+    expect(res.ok).toBe(true);
+    expect(res.output).toMatch(/folder=research\/papers/);
+    expect(mem.records[0]).toMatchObject({ folder: "research/papers" });
+  });
+
+  it("rejects unsafe folder paths", async () => {
+    const mem = new FakeMemoryStore();
+    const res = await writeMemorySkill.execute(
+      { content: "x", kind: "note", tags: [], folder: "../escape" },
+      makeCtx(mem),
+    );
+    expect(res.ok).toBe(false);
+    expect(res.output).toMatch(/invalid folder/);
   });
 
   it("includes tags in the confirmation message", async () => {
@@ -70,8 +93,22 @@ describe("searchMemorySkill", () => {
       makeCtx(mem),
     );
     expect(res.ok).toBe(true);
-    expect(res.output).toMatch(/#1 \[fact editor\] user prefers helix editor/);
+    expect(res.output).toMatch(/#1 \[fact folder=inbox status=active editor\] user prefers helix editor/);
     expect(res.output).not.toContain("oat milk");
+  });
+
+  it("can restrict search to a folder", async () => {
+    const mem = new FakeMemoryStore();
+    mem.add("fact", "alpha note", [], { folder: "research" });
+    mem.add("fact", "alpha note", [], { folder: "personal" });
+
+    const res = await searchMemorySkill.execute(
+      { query: "alpha", limit: 5, folder: "personal" },
+      makeCtx(mem),
+    );
+
+    expect(res.output).toContain("folder=personal");
+    expect(res.output).not.toContain("folder=research");
   });
 
   it("returns a friendly message when nothing matches", async () => {

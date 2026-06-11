@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   AssistantTurn,
+  KnowledgeStore,
   LLMProvider,
   MemoryRecord,
   MemoryStore,
@@ -22,6 +23,29 @@ class ScriptedSummarizer implements LLMProvider {
   async chat(opts: { system: string; messages: Message[]; tools: ToolSpec[] }): Promise<AssistantTurn> {
     this.calls.push(opts);
     return { kind: "final", text: this.text };
+  }
+}
+
+class FakeKnowledge implements KnowledgeStore {
+  searchKnowledge() {
+    return [
+      {
+        source: "memory" as const,
+        id: 1,
+        folder: "personal",
+        title: "Memory #1",
+        content: "user prefers helix",
+        tags: ["editor"],
+      },
+      {
+        source: "wiki" as const,
+        path: "personal/preferences.md",
+        folder: "personal",
+        title: "Preferences",
+        content: "Synthesized preference page",
+        tags: ["preferences"],
+      },
+    ];
   }
 }
 
@@ -56,6 +80,25 @@ describe("CompactingContextManager.prepareAsync — under budget", () => {
     expect(system).not.toMatch(/Summary of earlier conversation:\n/);
     // 6 historical messages + 1 new user = 7.
     expect(messages).toHaveLength(7);
+  });
+
+  it("injects separate memory and wiki retrieval sections when KnowledgeStore is available", async () => {
+    const conversations = new InMemoryStore();
+    const convId = conversations.newConversation();
+    const mgr = new CompactingContextManager({
+      memory: new NoOpMemory(),
+      conversations,
+      conversationId: convId,
+      summarizer: new ScriptedSummarizer("unused"),
+      knowledge: new FakeKnowledge(),
+    });
+
+    const { system } = await mgr.prepareAsync("editor?");
+
+    expect(system).toContain("Relevant memories retrieved");
+    expect(system).toContain("user prefers helix");
+    expect(system).toContain("Relevant wiki pages retrieved");
+    expect(system).toContain("personal/preferences.md");
   });
 });
 

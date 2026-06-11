@@ -23,10 +23,11 @@ At the prompt, type each line, hit enter:
 /skills
 /status
 /dream
+/wiki_maintain
 /exit
 ```
 
-**Expect:** `/help` lists ~10 commands including `/dream`; `/skills` shows 20+ tools (sessions_*, cron_*, canvas_*, dream, write_memory, shell, …); `/status` prints provider/model/db/conversation/workspace/skills count.
+**Expect:** `/help` lists commands including `/dream` and `/wiki_maintain`; `/skills` shows 20+ tools (sessions_*, cron_*, canvas_*, wiki_*, dream, write_memory, shell, …); `/status` prints provider/model/db/conversation/workspace/skills count.
 
 **Proves:** REPL boots, env loads, registry assembles, meta-commands work.
 

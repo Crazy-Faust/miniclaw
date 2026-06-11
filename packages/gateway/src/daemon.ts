@@ -13,6 +13,8 @@ export interface SocketDaemonControls {
     failed: number;
     bySkill: Array<{ skill: string; count: number }>;
   };
+  /** Drain memory-to-wiki maintenance jobs. */
+  wikiMaintain?(): Promise<string> | string;
 }
 
 export interface SocketDaemonOpts {
@@ -149,6 +151,19 @@ function handleClient(socket: Socket, gateway: Gateway, controls?: SocketDaemonC
     if (type === "usage") {
       const rollup = controls?.usage() ?? { total: 0, ok: 0, failed: 0, bySkill: [] };
       send({ type: "usage", rollup });
+      return;
+    }
+    if (type === "wiki_maintain") {
+      if (!controls?.wikiMaintain) {
+        send({ type: "error", message: "wiki maintenance is not configured" });
+        return;
+      }
+      try {
+        const text = await controls.wikiMaintain();
+        send({ type: "wiki_maintain", text });
+      } catch (err) {
+        send({ type: "error", message: (err as Error).message });
+      }
       return;
     }
     if (type === "end") {

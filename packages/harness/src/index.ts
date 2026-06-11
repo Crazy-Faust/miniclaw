@@ -13,6 +13,7 @@ export {
   skillsCommand,
   statusCommand,
   usageCommand,
+  wikiMaintainCommand,
   type MetaCommand,
   type MetaCommandContext,
 } from "./meta.ts";

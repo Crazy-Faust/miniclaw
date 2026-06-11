@@ -12,7 +12,7 @@ export interface Config {
   model: string;
   /** Only relevant for the openai provider; lets you point at Ollama, LM Studio, etc. */
   baseURL?: string;
-  /** Optional small LLM for cheap internal tasks such as compaction, summarization, and dreaming. */
+  /** Optional small LLM for cheap internal tasks such as compaction, summarization, dreaming, and wiki maintenance. */
   smallLLM?: LLMConfig;
   /** Filesystem sandbox root for skills-fs / skills-shell. Defaults to process.cwd(). */
   workspaceRoot: string;
