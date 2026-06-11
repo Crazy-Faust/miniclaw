@@ -9,6 +9,7 @@ flowchart TB
   core["@miniclaw/core<br/>interfaces and shared types"]
 
   agent["@miniclaw/agent<br/>tool loop and audit dispatch"]
+  dreaming["@miniclaw/dreaming<br/>background reflection"]
   harness["@miniclaw/harness<br/>REPL/meta-command orchestration"]
   gateway["@miniclaw/gateway<br/>sessions, daemon socket, cron runner"]
   http["@miniclaw/io-http<br/>HTTP + SSE wrapper"]
@@ -39,6 +40,8 @@ flowchart TB
   discord["@miniclaw/transport-discord"]
 
   agent --> core
+  dreaming --> agent
+  dreaming --> core
   harness --> agent
   harness --> core
   gateway --> agent
@@ -72,6 +75,7 @@ flowchart TB
   discord --> gateway
 
   cli --> agent
+  cli --> dreaming
   cli --> harness
   cli --> gateway
   cli --> contextStateless

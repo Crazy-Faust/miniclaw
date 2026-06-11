@@ -3,6 +3,7 @@ export type { IOAdapter } from "./io.ts";
 export {
   clearCommand,
   compactCommand,
+  dreamCommand,
   exitCommand,
   helpCommand,
   memoriesCommand,

@@ -3,6 +3,7 @@ import type { ConversationSummary } from "@miniclaw/core";
 import {
   clearCommand,
   compactCommand,
+  dreamCommand,
   type IOAdapter,
   type MetaCommandContext,
   modelCommand,
@@ -61,6 +62,27 @@ describe("/compact", () => {
     const { ctx, io } = makeCtx();
     await cmd.run("/compact", ctx);
     expect(io.text).toMatch(/budget too small/);
+  });
+});
+
+describe("/dream", () => {
+  it("invokes SessionControls.dream() and prints the result", async () => {
+    const dream = vi.fn(async () => "stored 2 memories");
+    const cmd = dreamCommand({ dream });
+    const { ctx, io } = makeCtx();
+    expect(cmd.matches("/dream")).toBe(true);
+    expect(cmd.matches("/dream now")).toBe(false);
+    await cmd.run("/dream", ctx);
+    expect(dream).toHaveBeenCalledTimes(1);
+    expect(io.text).toMatch(/stored 2 memories/);
+  });
+
+  it("surfaces an error from dream() without crashing the session", async () => {
+    const dream = vi.fn(async () => { throw new Error("model unavailable"); });
+    const cmd = dreamCommand({ dream });
+    const { ctx, io } = makeCtx();
+    await cmd.run("/dream", ctx);
+    expect(io.text).toMatch(/model unavailable/);
   });
 });
 

@@ -16,6 +16,8 @@ export interface SessionControls {
   clear?(): Promise<void> | void;
   /** Force the context manager to run its compaction step right now. */
   compact?(): Promise<void> | void;
+  /** Run a background dreaming/reflection pass over stored conversations. */
+  dream?(): Promise<string> | string;
   /** Return the currently-active model identifier. */
   getModel?(): string;
   /** Switch to a different model. Throw to indicate "unsupported" or

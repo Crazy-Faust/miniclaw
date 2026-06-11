@@ -12,7 +12,7 @@ import type { Config } from "../src/config.ts";
 // booting the REPL.
 
 describe("buildRegistry", () => {
-  it("registers every always-on built-in skill (no provider key set)", () => {
+  it("registers every dependency-free built-in skill (no provider key set)", () => {
     const r = buildRegistry({});
     const names = r.list().map((s) => s.name).sort();
     expect(names).toEqual([

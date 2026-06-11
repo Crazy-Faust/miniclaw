@@ -20,6 +20,7 @@
     "@miniclaw/agent": "workspace:*",
     "@miniclaw/context-windowed": "workspace:*",
     "@miniclaw/core": "workspace:*",
+    "@miniclaw/dreaming": "workspace:*",
     "@miniclaw/harness": "workspace:*",
     "@miniclaw/context-stateless": "workspace:*",
     "@miniclaw/llm-anthropic": "workspace:*",

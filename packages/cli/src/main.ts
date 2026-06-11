@@ -7,6 +7,7 @@ import "./env.ts";
 import { Agent } from "@miniclaw/agent";
 import { StatelessContextManager } from "@miniclaw/context-stateless";
 import { CompactingContextManager } from "@miniclaw/context-windowed";
+import { createDreamSkill, Dreamer, formatDreamRunResult } from "@miniclaw/dreaming";
 import type {
   AuditSink,
   ContextManager,
@@ -20,6 +21,7 @@ import {
   Harness,
   type IOAdapter,
   memoriesCommand,
+  dreamCommand,
   resetCommand,
   skillsCommand,
   statusCommand,
@@ -151,6 +153,17 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
   for (const sk of createCanvasSkills({ store: canvasStore })) {
     registry.register(sk);
   }
+  const dreamer = new Dreamer({
+    llm: summarizerLLM,
+    conversations: store,
+    memory: store,
+    audit: store,
+    registry,
+    dbPath: ephemeral ? ":memory:" : config.dbPath,
+    channel: "cli",
+    workspaceRoot: config.workspaceRoot,
+  });
+  registry.register(createDreamSkill(dreamer));
 
   const controls: SessionControls = {
     status: () => ({
@@ -164,6 +177,10 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
       workspace: config.workspaceRoot,
       skills: String(registry.list().length),
     }),
+    dream: async () => {
+      const result = await dreamer.run();
+      return formatDreamRunResult(result);
+    },
     usage: () => store.auditUsage(),
   };
 
@@ -184,6 +201,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
         exitCommand(),
         skillsCommand(registry),
         memoriesCommand(store),
+        dreamCommand(controls),
         statusCommand(controls),
         resetCommand(controls),
         usageCommand(controls),

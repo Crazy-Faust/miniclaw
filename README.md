@@ -2,7 +2,7 @@
 
 A lightweight, local-first AI agent. It maps natural-language requests to a small set of safe tools, runs them on your machine, and keeps an auditable trail of everything in SQLite.
 
-The repo is a **pnpm workspace** of 25 small packages. Every major subsystem (LLM provider, memory store, context strategy, skill, I/O, transport) is its own package behind an interface in `@miniclaw/core`, so each can be swapped or extended independently.
+The repo is a **pnpm workspace** of 26 small packages. Every major subsystem (LLM provider, memory store, context strategy, skill, I/O, transport) is its own package behind an interface in `@miniclaw/core`, so each can be swapped or extended independently.
 
 You can use miniclaw three ways:
 
@@ -346,6 +346,7 @@ Restart the agent (`/exit` and `pnpm dev` again, or `daemon stop` + `daemon star
 /usage          Tool-call counts from the audit log (total + by skill).
 /reset          Start a fresh conversation (alias of /clear).
 /compact        Summarize older turns to free up context budget.
+/dream          Review recent conversations and extract useful memories/tasks.
 /make_skill     Scaffold a brand-new skill package and register it.
 /exit, /quit    End the session.
 ```
@@ -453,6 +454,7 @@ packages/
 │
 │  ── orchestration
 ├── agent/                Agent.runTurn — one user turn end-to-end. Depends on core ONLY.
+├── dreaming/             Background reflection over conversations using normal skills.
 ├── harness/              Session loop + meta-commands. Reads input via IOAdapter.
 ├── gateway/              Long-running daemon: SessionRegistry, CronScheduler,
 │                         Unix-socket attach, launchd/systemd templates.
