@@ -219,14 +219,13 @@ export class Agent {
     trace: TurnTrace,
     hooks?: AgentTurnHooks,
   ): Promise<{ content: string; ok: boolean }> {
-    const argsJson = safeStringify(call.args);
     const finish = async (
       skillName: string,
       argsForTrace: unknown,
       content: string,
       ok: boolean,
     ): Promise<{ content: string; ok: boolean }> => {
-      this.deps.audit.logToolCall(skillName, argsJson, summarize(content), ok);
+      this.deps.audit.logToolCall(skillName, safeStringify(argsForTrace), summarize(content), ok);
       trace.toolCalls.push({ name: skillName, args: argsForTrace, ok, output: content });
       // Post-tool hook is observational — failures here must not poison
       // the agent loop, so swallow throws and surface them via console.
@@ -315,7 +314,7 @@ export class Agent {
       return await finish(skill.name, parsed.data, res.output, res.ok);
     } catch (err) {
       const msg = `tool threw: ${(err as Error).message ?? String(err)}`;
-      return await finish(skill.name, call.args, msg, false);
+      return await finish(skill.name, parsed.data, msg, false);
     }
   }
 }
