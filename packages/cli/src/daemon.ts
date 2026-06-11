@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { Agent } from "@miniclaw/agent";
 import { CompactingContextManager } from "@miniclaw/context-windowed";
-import { createDreamSkill, Dreamer } from "@miniclaw/dreaming";
+import { createDreamSkill, Dreamer, formatDreamRunResult } from "@miniclaw/dreaming";
 import {
   CronScheduler,
   defaultPidPath,
@@ -224,6 +224,7 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
         skills: String(registry.list().length),
       }),
       usage: () => store.auditUsage(),
+      dream: async () => formatDreamRunResult(await dreamer.run()),
       wikiMaintain: async () => formatMaintenanceResult(await wikiMaintainer.drain()),
     },
     onShutdown: async () => {

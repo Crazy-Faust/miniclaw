@@ -131,6 +131,14 @@ export async function socketAttachIO(opts: SocketAttachOpts): Promise<void> {
       }
       return;
     }
+    if (type === "dream") {
+      output.write(`${String(msg.text ?? "")}\n`);
+      if (waiter) {
+        waiter.resolve();
+        waiter = null;
+      }
+      return;
+    }
   }
 
   try {
@@ -148,6 +156,7 @@ export async function socketAttachIO(opts: SocketAttachOpts): Promise<void> {
         trimmed === "/status" ? "status" :
         trimmed === "/usage" ? "usage" :
         trimmed === "/wiki_maintain" ? "wiki_maintain" :
+        trimmed === "/dream" ? "dream" :
         null;
       if (ctl) {
         socket.write(JSON.stringify({ type: ctl }) + "\n");

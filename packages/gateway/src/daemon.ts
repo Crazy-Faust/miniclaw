@@ -15,6 +15,8 @@ export interface SocketDaemonControls {
   };
   /** Drain memory-to-wiki maintenance jobs. */
   wikiMaintain?(): Promise<string> | string;
+  /** Run a manual dream pass. */
+  dream?(): Promise<string> | string;
 }
 
 export interface SocketDaemonOpts {
@@ -161,6 +163,19 @@ function handleClient(socket: Socket, gateway: Gateway, controls?: SocketDaemonC
       try {
         const text = await controls.wikiMaintain();
         send({ type: "wiki_maintain", text });
+      } catch (err) {
+        send({ type: "error", message: (err as Error).message });
+      }
+      return;
+    }
+    if (type === "dream") {
+      if (!controls?.dream) {
+        send({ type: "error", message: "dreaming is not configured" });
+        return;
+      }
+      try {
+        const text = await controls.dream();
+        send({ type: "dream", text });
       } catch (err) {
         send({ type: "error", message: (err as Error).message });
       }
