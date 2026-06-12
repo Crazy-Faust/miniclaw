@@ -270,10 +270,16 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
     process.stdout.write(`miniclaw wiki browser: ${wikiBrowser.url}\n`);
   }
 
+  let shutdownPromise: Promise<void> | null = null;
   const shutdown = async (): Promise<void> => {
-    process.stdout.write("\nminiclaw daemon: shutting down\n");
-    await handle.stop();
-    process.exit(0);
+    if (shutdownPromise) return shutdownPromise;
+    process.exitCode = 0;
+    shutdownPromise = (async () => {
+      process.stdout.write("\nminiclaw daemon: shutting down\n");
+      await handle.stop();
+      process.exit(0);
+    })();
+    return shutdownPromise;
   };
   process.on("SIGTERM", () => void shutdown());
   process.on("SIGINT", () => void shutdown());

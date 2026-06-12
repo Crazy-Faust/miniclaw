@@ -188,9 +188,66 @@ function renderUsagePage(rec: WikiPageRecord, token: string): string {
         <dt>Path</dt><dd><code>${escapeHtml(rec.path)}</code></dd>
         <dt>Updated</dt><dd>${new Date(rec.updatedAt).toISOString()}</dd>
       </dl>
-      <pre>${escapeHtml(rec.content)}</pre>
+      ${renderUsageContent(rec.content)}
     </article>
   `;
+}
+
+function renderUsageContent(content: string): string {
+  const lines = content.split(/\r?\n/);
+  const parts: string[] = [];
+  let plain: string[] = [];
+
+  const flushPlain = (): void => {
+    const text = plain.join("\n").trimEnd();
+    plain = [];
+    if (text.trim()) parts.push(`<pre>${escapeHtml(text)}</pre>`);
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const headers = parseMarkdownTableRow(lines[i] ?? "");
+    const separator = parseMarkdownTableRow(lines[i + 1] ?? "");
+    if (headers.length > 0 && isMarkdownTableSeparator(separator, headers.length)) {
+      flushPlain();
+      const rows: string[][] = [];
+      i += 2;
+      while (i < lines.length) {
+        const row = parseMarkdownTableRow(lines[i] ?? "");
+        if (row.length === 0) break;
+        rows.push(normalizeTableRow(row, headers.length));
+        i += 1;
+      }
+      i -= 1;
+      parts.push(renderHtmlTable(headers, rows));
+      continue;
+    }
+    plain.push(lines[i] ?? "");
+  }
+
+  flushPlain();
+  return parts.length ? parts.join("\n") : "<p class=\"muted\">No usage data yet.</p>";
+}
+
+function parseMarkdownTableRow(line: string): string[] {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|")) return [];
+  const cells = trimmed.replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+  return cells.length >= 2 ? cells : [];
+}
+
+function isMarkdownTableSeparator(cells: string[], headerCount: number): boolean {
+  if (cells.length !== headerCount) return false;
+  return cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function normalizeTableRow(row: string[], cellCount: number): string[] {
+  if (row.length === cellCount) return row;
+  return [...row, ...Array(Math.max(0, cellCount - row.length)).fill("")].slice(0, cellCount);
+}
+
+function renderHtmlTable(headers: string[], rows: string[][]): string {
+  return `<table class="usage-table"><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>` +
+    `<tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
 }
 
 function renderFolder(
@@ -308,6 +365,9 @@ function page(title: string, body: string): string {
   a { color: #0b62b4; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
   pre { white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid #9995; border-radius: 6px; padding: 14px; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; }
+  th, td { border: 1px solid #9995; padding: 7px 9px; text-align: left; vertical-align: top; }
+  th { background: #9992; font-weight: 700; }
   dl { display: grid; grid-template-columns: 140px 1fr; gap: 4px 10px; }
   dt { font-weight: 700; }
   dd { margin: 0; }

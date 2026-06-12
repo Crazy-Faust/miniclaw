@@ -59,7 +59,7 @@ class FakeWiki implements WikiStore {
       path: "system/llm-usage.md",
       folder: "system",
       title: "LLM Usage",
-      content: "# LLM Usage\nCalls: 1",
+      content: "# LLM Usage\nCalls: 1\n\n| Provider | Calls |\n| --- | ---: |\n| openai | 2 |",
       tags: ["system", "usage"],
       sourceMemoryIds: [],
       createdAt: 1,
@@ -121,6 +121,9 @@ describe("wiki browser", () => {
       expect(usage.status).toBe(200);
       expect(usageHtml).toContain("LLM Usage");
       expect(usageHtml).toContain("Calls: 1");
+      expect(usageHtml).toContain('<table class="usage-table">');
+      expect(usageHtml).toContain("<th>Provider</th>");
+      expect(usageHtml).toContain("<td>openai</td>");
 
       const search = await fetch(`${handle.url}&q=nope`.replace("/?", "/search?"));
       expect(search.status).toBe(200);
