@@ -10,6 +10,7 @@ import {
   type Skill,
   type WikiMaintenanceAction,
   type WikiStore,
+  withLLMUsageContext,
 } from "@miniclaw/core";
 
 export const MEMORY_WIKI_SYSTEM_PROMPT = `You maintain miniclaw's SQLite-native LLM Wiki.
@@ -163,11 +164,18 @@ export class MemoryWikiMaintainer {
     summary: string;
     actions: WikiMaintenanceAction[];
   }> {
-    const turn = await this.opts.llm.chat({
-      system: MEMORY_WIKI_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: buildMaintenancePrompt(jobs) }],
-      tools: [],
-    });
+    const turn = await withLLMUsageContext(
+      {
+        taskKind: "wiki_maintenance",
+        taskName: `memory maintenance (${jobs.length} job${jobs.length === 1 ? "" : "s"})`,
+        component: "memory-wiki",
+      },
+      () => this.opts.llm.chat({
+        system: MEMORY_WIKI_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: buildMaintenancePrompt(jobs) }],
+        tools: [],
+      }),
+    );
     const parsed = ResponseSchema.parse(JSON.parse(extractJsonObject(turn.text)));
     return {
       summary: parsed.summary,

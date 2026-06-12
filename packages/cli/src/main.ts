@@ -48,6 +48,7 @@ import { parseArgs, USAGE, type Mode } from "./argv.ts";
 import { loadConfig, type Config } from "./config.ts";
 import { createOneShotIO, createReadlineIO } from "./io.ts";
 import { buildLLM, buildSmallLLM } from "./llm.ts";
+import { trackLLMUsage } from "./llm-usage.ts";
 import { buildToolGuard, describeSecurityMode } from "./security.ts";
 import { makeSkillCommand } from "./make-skill/index.ts";
 import { buildRegistry } from "./skills.ts";
@@ -104,14 +105,25 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
 
   const store: MemoryStore & ConversationStore & AuditSink & SessionStore & CronStore & WithUsage & Closeable =
     ephemeral ? new InMemoryStore() : new SqliteStore(config.dbPath);
+  const wikiStore = store instanceof SqliteStore ? store : null;
 
   const convId = store.newConversation();
   const registry = buildRegistry();
-  const llm = buildLLM(config);
-  const smallLLM = buildSmallLLM(config);
+  const llm = trackLLMUsage(
+    buildLLM(config),
+    wikiStore ?? undefined,
+    { provider: config.provider, model: config.model, role: "primary" },
+  );
+  const builtSmallLLM = buildSmallLLM(config);
+  const smallLLM = builtSmallLLM && config.smallLLM
+    ? trackLLMUsage(
+        builtSmallLLM,
+        wikiStore ?? undefined,
+        { provider: config.smallLLM.provider, model: config.smallLLM.model, role: "small" },
+      )
+    : undefined;
   const toolGuard = buildToolGuard(config, smallLLM);
   const summarizerLLM = smallLLM ?? llm;
-  const wikiStore = store instanceof SqliteStore ? store : null;
   const wikiMaintainer = wikiStore
     ? new MemoryWikiMaintainer({
         llm: smallLLM ?? llm,
@@ -155,6 +167,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
     audit: store,
     dbPath: ephemeral ? ":memory:" : config.dbPath,
     channel: "cli",
+    conversationId: convId,
     workspaceRoot: config.workspaceRoot,
     toolGuard,
     confirmTool: io.confirm

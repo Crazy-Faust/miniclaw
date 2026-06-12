@@ -31,6 +31,7 @@ import { DiscordTransport } from "@miniclaw/transport-discord";
 import type { Transport } from "@miniclaw/core";
 
 import { buildLLM, buildSmallLLM } from "./llm.ts";
+import { trackLLMUsage } from "./llm-usage.ts";
 import { buildToolGuard, describeSecurityMode } from "./security.ts";
 import { buildRegistry } from "./skills.ts";
 import type { Config } from "./config.ts";
@@ -105,8 +106,19 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
   writePid(pidPath, process.pid);
 
   const store = new SqliteStore(config.dbPath);
-  const llm = buildLLM(config);
-  const smallLLM = buildSmallLLM(config);
+  const llm = trackLLMUsage(
+    buildLLM(config),
+    store,
+    { provider: config.provider, model: config.model, role: "primary" },
+  );
+  const builtSmallLLM = buildSmallLLM(config);
+  const smallLLM = builtSmallLLM && config.smallLLM
+    ? trackLLMUsage(
+        builtSmallLLM,
+        store,
+        { provider: config.smallLLM.provider, model: config.smallLLM.model, role: "small" },
+      )
+    : undefined;
   const toolGuard = buildToolGuard(config, smallLLM);
   const summarizerLLM = smallLLM ?? llm;
   const registry = buildRegistry();
@@ -148,6 +160,8 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
         audit: store,
         dbPath: config.dbPath,
         channel: session.channel,
+        sessionId: session.id,
+        conversationId: session.conversationId,
         workspaceRoot: config.workspaceRoot,
         toolGuard,
       });

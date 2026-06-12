@@ -3,6 +3,7 @@ import { Agent, type AgentRetryOptions, type ToolGuard, type TurnTrace } from "@
 import {
   ok,
   SkillRegistry,
+  withLLMUsageContext,
   type AuditSink,
   type ContextManager,
   type ConversationStore,
@@ -130,7 +131,15 @@ export class Dreamer {
       retry: this.opts.retry,
       toolGuard: this.opts.toolGuard,
     });
-    const trace = await agent.runTurn(userMsg);
+    const trace = await withLLMUsageContext(
+      {
+        taskKind: "dream",
+        taskName: `dream pass (${transcript.conversationsScanned} conversation${transcript.conversationsScanned === 1 ? "" : "s"})`,
+        channel: this.opts.channel,
+        component: "dreaming",
+      },
+      () => agent.runTurn(userMsg),
+    );
     return {
       ...transcript,
       finalText: trace.finalText,

@@ -17,6 +17,8 @@ import type {
   KnowledgeSearchResult,
   KnowledgeSearchOptions,
   KnowledgeStore,
+  LLMUsageRecord,
+  LLMUsageSink,
   MemoryAddOptions,
   MemoryMaintenanceJob,
   MemoryMaintenanceQueue,
@@ -39,6 +41,8 @@ import type {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCHEMA = readFileSync(join(HERE, "schema.sql"), "utf8");
+const LLM_USAGE_PAGE_PATH = "system/llm-usage.md";
+const PROTECTED_WIKI_PAGE_PATHS = new Set([LLM_USAGE_PAGE_PATH]);
 
 // Single SQLite file implements three contracts. A future split (e.g.
 // audit-postgres) only needs to keep its slice of these methods.
@@ -47,6 +51,7 @@ export class SqliteStore
     MemoryStore,
     WikiStore,
     KnowledgeStore,
+    LLMUsageSink,
     MemoryMaintenanceQueue,
     ConversationStore,
     AuditSink,
@@ -69,6 +74,7 @@ export class SqliteStore
     this.db.pragma("foreign_keys = ON");
     this.db.exec(SCHEMA);
     this.migrate();
+    this.ensureSystemWikiPages();
 
     // VULN-15: Restrict database file permissions to owner-only (0600).
     // The DB may contain conversation history, memories, API keys the user
@@ -86,12 +92,30 @@ export class SqliteStore
     if (!cronCols.some((c) => c.name === "channel")) {
       this.db.exec("ALTER TABLE cron_jobs ADD COLUMN channel TEXT");
     }
+    const usageCols = this.db.pragma("table_info(llm_usage_events)") as Array<{ name: string }>;
+    const addUsageCol = (name: string, ddl: string): void => {
+      if (!usageCols.some((c) => c.name === name)) this.db.exec(ddl);
+    };
+    addUsageCol("task_kind", "ALTER TABLE llm_usage_events ADD COLUMN task_kind TEXT NOT NULL DEFAULT 'unknown'");
+    addUsageCol("task_name", "ALTER TABLE llm_usage_events ADD COLUMN task_name TEXT");
+    addUsageCol("channel", "ALTER TABLE llm_usage_events ADD COLUMN channel TEXT");
+    addUsageCol("session_id", "ALTER TABLE llm_usage_events ADD COLUMN session_id TEXT");
+    addUsageCol("conversation_id", "ALTER TABLE llm_usage_events ADD COLUMN conversation_id INTEGER");
+    addUsageCol("component", "ALTER TABLE llm_usage_events ADD COLUMN component TEXT");
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS llm_usage_events_task_idx
+       ON llm_usage_events(task_kind, role, ts)`,
+    );
     this.db
       .prepare(
         `INSERT OR IGNORE INTO memory_metadata(memory_id, folder_path, status, updated_at)
          SELECT id, 'inbox', 'active', created_at FROM memories`,
       )
       .run();
+  }
+
+  private ensureSystemWikiPages(): void {
+    this.refreshLLMUsageWikiPage();
   }
 
   // ---- MemoryStore ----
@@ -166,7 +190,17 @@ export class SqliteStore
   // ---- WikiStore / KnowledgeStore ----
 
   upsertWikiPage(input: WikiPageInput): void {
+    this.upsertWikiPageInternal(input, { allowProtected: false });
+  }
+
+  private upsertWikiPageInternal(
+    input: WikiPageInput,
+    opts: { allowProtected: boolean },
+  ): void {
     const path = normalizeWikiPagePath(input.path, input.folder);
+    if (!opts.allowProtected && isProtectedWikiPagePath(path)) {
+      throw new Error(`wiki page is system-protected: ${path}`);
+    }
     const folder = normalizeMemoryFolderPath(input.folder ?? folderFromWikiPath(path));
     const now = Date.now();
     const tags = (input.tags ?? []).join(" ");
@@ -198,13 +232,27 @@ export class SqliteStore
 
   readWikiPage(path: string): WikiPageRecord | null {
     const normalized = normalizeWikiPagePath(path);
+    if (isProtectedWikiPagePath(normalized)) return null;
+    return this.readWikiPageInternal(normalized);
+  }
+
+  readLLMUsageWikiPage(): WikiPageRecord {
+    const existing = this.readWikiPageInternal(LLM_USAGE_PAGE_PATH);
+    if (existing) return existing;
+    this.refreshLLMUsageWikiPage();
+    const created = this.readWikiPageInternal(LLM_USAGE_PAGE_PATH);
+    if (!created) throw new Error("failed to create LLM usage wiki page");
+    return created;
+  }
+
+  private readWikiPageInternal(path: string): WikiPageRecord | null {
     const row = this.db
       .prepare(
         `SELECT path, folder_path AS folder, title, content, tags,
                 source_memory_ids AS sourceMemoryIds, created_at AS createdAt, updated_at AS updatedAt
          FROM wiki_pages WHERE path = ?`,
       )
-      .get(normalized) as RawWikiPageRow | undefined;
+      .get(path) as RawWikiPageRow | undefined;
     return row ? toWikiPageRecord(row) : null;
   }
 
@@ -215,11 +263,12 @@ export class SqliteStore
         `SELECT path, folder_path AS folder, title, content, tags,
                 source_memory_ids AS sourceMemoryIds, created_at AS createdAt, updated_at AS updatedAt
          FROM wiki_pages
-         WHERE ? IS NULL OR folder_path = ?
+         WHERE (? IS NULL OR folder_path = ?)
+           AND path != ?
          ORDER BY updated_at DESC, path ASC
          LIMIT ?`,
       )
-      .all(normalizedFolder, normalizedFolder, limit) as RawWikiPageRow[];
+      .all(normalizedFolder, normalizedFolder, LLM_USAGE_PAGE_PATH, limit) as RawWikiPageRow[];
     return rows.map(toWikiPageRecord);
   }
 
@@ -227,9 +276,14 @@ export class SqliteStore
     return this.db
       .prepare(
         `SELECT path, title, created_at AS createdAt, updated_at AS updatedAt
-         FROM wiki_folders ORDER BY path ASC`,
+         FROM wiki_folders f
+         WHERE EXISTS (
+           SELECT 1 FROM wiki_pages p
+           WHERE p.folder_path = f.path AND p.path != ?
+         )
+         ORDER BY path ASC`,
       )
-      .all() as WikiFolderRecord[];
+      .all(LLM_USAGE_PAGE_PATH) as WikiFolderRecord[];
   }
 
   searchWiki(query: string, limit = 5): WikiSearchResult[] {
@@ -242,23 +296,29 @@ export class SqliteStore
              FROM wiki_pages_fts f
              JOIN wiki_pages p ON p.rowid = f.rowid
              WHERE wiki_pages_fts MATCH ?
+               AND p.path != ?
              ORDER BY rank
              LIMIT ?`,
           )
-          .all(sanitized, limit) as RawWikiSearchRow[]
+          .all(sanitized, LLM_USAGE_PAGE_PATH, limit) as RawWikiSearchRow[]
       : this.db
           .prepare(
             `SELECT path, folder_path AS folder, title, content, tags,
                     source_memory_ids AS sourceMemoryIds
-             FROM wiki_pages ORDER BY updated_at DESC LIMIT ?`,
+             FROM wiki_pages
+             WHERE path != ?
+             ORDER BY updated_at DESC LIMIT ?`,
           )
-          .all(limit) as RawWikiSearchRow[];
+          .all(LLM_USAGE_PAGE_PATH, limit) as RawWikiSearchRow[];
     return rows.map(toWikiSearchResult);
   }
 
   addWikiLink(fromPath: string, toPath: string, kind = "related"): void {
     const from = normalizeWikiPagePath(fromPath);
     const to = normalizeWikiPagePath(toPath);
+    if (isProtectedWikiPagePath(from) || isProtectedWikiPagePath(to)) {
+      throw new Error("wiki link touches a system-protected page");
+    }
     this.db
       .prepare(
         `INSERT OR IGNORE INTO wiki_links(from_path, to_path, kind, created_at)
@@ -281,19 +341,44 @@ export class SqliteStore
     const tx = this.db.transaction(() => {
       for (const action of actions) {
         switch (action.type) {
-          case "upsert_page":
+          case "upsert_page": {
+            const path = normalizeWikiPagePath(action.path, action.folder);
+            if (isProtectedWikiPagePath(path)) {
+              this.appendWikiLog("maintenance_skipped", `skipped protected page update: ${path}`, {
+                path,
+                reason: "system_protected",
+              });
+              break;
+            }
             this.upsertWikiPage(action);
             break;
-          case "add_link":
+          }
+          case "add_link": {
+            const from = normalizeWikiPagePath(action.fromPath);
+            const to = normalizeWikiPagePath(action.toPath);
+            if (isProtectedWikiPagePath(from) || isProtectedWikiPagePath(to)) {
+              this.appendWikiLog("maintenance_skipped", "skipped protected page link", {
+                fromPath: from,
+                toPath: to,
+                reason: "system_protected",
+              });
+              break;
+            }
             this.addWikiLink(action.fromPath, action.toPath, action.kind);
             break;
-          case "mark_memory":
+          }
+          case "mark_memory": {
+            const canonicalPagePath = action.canonicalPagePath &&
+              isProtectedWikiPagePath(normalizeWikiPagePath(action.canonicalPagePath))
+              ? undefined
+              : action.canonicalPagePath;
             this.updateMemoryMetadata(action.memoryId, {
               folder: action.folder,
               status: action.status,
-              canonicalPagePath: action.canonicalPagePath,
+              canonicalPagePath,
             });
             break;
+          }
           case "append_log":
             this.appendWikiLog(action.eventType ?? "maintenance", action.message, action.metadata);
             break;
@@ -711,6 +796,249 @@ export class SqliteStore
     };
   }
 
+  recordLLMUsage(record: LLMUsageRecord): void {
+    const usage = record.usage ?? {};
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO llm_usage_events(
+             ts, provider, model, role, kind,
+             task_kind, task_name, channel, session_id, conversation_id, component,
+             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
+           )
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          record.ts ?? Date.now(),
+          record.provider,
+          record.model,
+          record.role,
+          record.kind,
+          record.context?.taskKind ?? "unknown",
+          record.context?.taskName ?? null,
+          record.context?.channel ?? null,
+          record.context?.sessionId ?? null,
+          record.context?.conversationId ?? null,
+          record.context?.component ?? null,
+          nullableInt(usage.inputTokens),
+          nullableInt(usage.outputTokens),
+          nullableInt(usage.cacheReadTokens),
+          nullableInt(usage.cacheWriteTokens),
+        );
+      this.refreshLLMUsageWikiPage();
+    });
+    tx();
+  }
+
+  private refreshLLMUsageWikiPage(): void {
+    this.upsertWikiPageInternal(
+      {
+        path: LLM_USAGE_PAGE_PATH,
+        folder: "system",
+        title: "LLM Usage",
+        content: this.renderLLMUsageWikiPage(),
+        tags: ["system", "llm", "usage", "statistics"],
+        sourceMemoryIds: [],
+      },
+      { allowProtected: true },
+    );
+  }
+
+  private renderLLMUsageWikiPage(): string {
+    const totals = this.db
+      .prepare(
+        `SELECT COUNT(*) AS calls,
+                COALESCE(SUM(COALESCE(input_tokens, 0)), 0) AS inputTokens,
+                COALESCE(SUM(COALESCE(output_tokens, 0)), 0) AS outputTokens,
+                COALESCE(SUM(COALESCE(cache_read_tokens, 0)), 0) AS cacheReadTokens,
+                COALESCE(SUM(COALESCE(cache_write_tokens, 0)), 0) AS cacheWriteTokens,
+                SUM(CASE WHEN input_tokens IS NULL
+                          AND output_tokens IS NULL
+                          AND cache_read_tokens IS NULL
+                          AND cache_write_tokens IS NULL
+                         THEN 1 ELSE 0 END) AS callsWithoutTokenData,
+                SUM(CASE WHEN kind = 'error' THEN 1 ELSE 0 END) AS errorCalls,
+                MIN(ts) AS firstTs,
+                MAX(ts) AS lastTs
+         FROM llm_usage_events`,
+      )
+      .get() as LLMUsageTotalsRow;
+    const byTask = this.db
+      .prepare(
+        `SELECT task_kind AS taskKind, COUNT(*) AS calls,
+                COALESCE(SUM(COALESCE(input_tokens, 0)), 0) AS inputTokens,
+                COALESCE(SUM(COALESCE(output_tokens, 0)), 0) AS outputTokens,
+                COALESCE(SUM(COALESCE(cache_read_tokens, 0)), 0) AS cacheReadTokens,
+                COALESCE(SUM(COALESCE(cache_write_tokens, 0)), 0) AS cacheWriteTokens
+         FROM llm_usage_events
+         GROUP BY task_kind
+         ORDER BY calls DESC, task_kind ASC`,
+      )
+      .all() as LLMUsageByTaskRow[];
+    const byModel = this.db
+      .prepare(
+        `SELECT role, provider, model, COUNT(*) AS calls,
+                COALESCE(SUM(COALESCE(input_tokens, 0)), 0) AS inputTokens,
+                COALESCE(SUM(COALESCE(output_tokens, 0)), 0) AS outputTokens,
+                COALESCE(SUM(COALESCE(cache_read_tokens, 0)), 0) AS cacheReadTokens,
+                COALESCE(SUM(COALESCE(cache_write_tokens, 0)), 0) AS cacheWriteTokens
+         FROM llm_usage_events
+         GROUP BY role, provider, model
+         ORDER BY role ASC, calls DESC, provider ASC, model ASC`,
+      )
+      .all() as LLMUsageByModelRow[];
+    const byTaskModel = this.db
+      .prepare(
+        `SELECT task_kind AS taskKind, role, provider, model, COUNT(*) AS calls,
+                COALESCE(SUM(COALESCE(input_tokens, 0)), 0) AS inputTokens,
+                COALESCE(SUM(COALESCE(output_tokens, 0)), 0) AS outputTokens,
+                COALESCE(SUM(COALESCE(cache_read_tokens, 0)), 0) AS cacheReadTokens,
+                COALESCE(SUM(COALESCE(cache_write_tokens, 0)), 0) AS cacheWriteTokens
+         FROM llm_usage_events
+         GROUP BY task_kind, role, provider, model
+         ORDER BY task_kind ASC, role ASC, calls DESC, provider ASC, model ASC`,
+      )
+      .all() as LLMUsageByTaskModelRow[];
+    const byChannel = this.db
+      .prepare(
+        `SELECT COALESCE(channel, '') AS channel,
+                task_kind AS taskKind,
+                COALESCE(task_name, '') AS taskName,
+                COUNT(*) AS calls,
+                COALESCE(SUM(COALESCE(input_tokens, 0)), 0) AS inputTokens,
+                COALESCE(SUM(COALESCE(output_tokens, 0)), 0) AS outputTokens,
+                COALESCE(SUM(COALESCE(cache_read_tokens, 0)), 0) AS cacheReadTokens,
+                COALESCE(SUM(COALESCE(cache_write_tokens, 0)), 0) AS cacheWriteTokens
+         FROM llm_usage_events
+         GROUP BY channel, task_kind, task_name
+         ORDER BY calls DESC, channel ASC, task_kind ASC
+         LIMIT 50`,
+      )
+      .all() as LLMUsageByChannelRow[];
+    const recent = this.db
+      .prepare(
+        `SELECT ts, role, provider, model, kind,
+                task_kind AS taskKind,
+                task_name AS taskName,
+                channel,
+                session_id AS sessionId,
+                conversation_id AS conversationId,
+                component,
+                input_tokens AS inputTokens,
+                output_tokens AS outputTokens,
+                cache_read_tokens AS cacheReadTokens,
+                cache_write_tokens AS cacheWriteTokens
+         FROM llm_usage_events
+         ORDER BY ts DESC, id DESC
+         LIMIT 10`,
+      )
+      .all() as LLMUsageRecentRow[];
+    const totalTokens =
+      Number(totals.inputTokens ?? 0) +
+      Number(totals.outputTokens ?? 0) +
+      Number(totals.cacheReadTokens ?? 0) +
+      Number(totals.cacheWriteTokens ?? 0);
+
+    return [
+      "# LLM Usage",
+      "",
+      "Protected system page. This page is generated by miniclaw from local SQLite usage events.",
+      "It is for the user only: normal wiki search/read/list and context retrieval do not expose it to the LLM.",
+      "The LLM wiki maintainer cannot modify this page.",
+      "",
+      `Updated: ${formatTimestamp(Date.now())}`,
+      `First event: ${totals.firstTs ? formatTimestamp(totals.firstTs) : "none"}`,
+      `Last event: ${totals.lastTs ? formatTimestamp(totals.lastTs) : "none"}`,
+      "",
+      "## Totals",
+      "",
+      "| Metric | Value |",
+      "|---|---:|",
+      `| Calls | ${formatInt(totals.calls)} |`,
+      `| Error calls | ${formatInt(totals.errorCalls)} |`,
+      `| Calls without token data | ${formatInt(totals.callsWithoutTokenData)} |`,
+      `| Input tokens | ${formatInt(totals.inputTokens)} |`,
+      `| Output tokens | ${formatInt(totals.outputTokens)} |`,
+      `| Cache read tokens | ${formatInt(totals.cacheReadTokens)} |`,
+      `| Cache write tokens | ${formatInt(totals.cacheWriteTokens)} |`,
+      `| All reported tokens | ${formatInt(totalTokens)} |`,
+      "",
+      "## By Task",
+      "",
+      byTask.length
+        ? [
+            "| Task | Calls | Input | Output | Cache read | Cache write |",
+            "|---|---:|---:|---:|---:|---:|",
+            ...byTask.map((row) =>
+              `| ${md(formatTaskKind(row.taskKind))} | ${formatInt(row.calls)} | ` +
+              `${formatInt(row.inputTokens)} | ${formatInt(row.outputTokens)} | ` +
+              `${formatInt(row.cacheReadTokens)} | ${formatInt(row.cacheWriteTokens)} |`,
+            ),
+          ].join("\n")
+        : "_No LLM calls recorded yet._",
+      "",
+      "## By Role And Model",
+      "",
+      byModel.length
+        ? [
+            "| Role | Provider | Model | Calls | Input | Output | Cache read | Cache write |",
+            "|---|---|---|---:|---:|---:|---:|---:|",
+            ...byModel.map((row) =>
+              `| ${md(row.role)} | ${md(row.provider)} | ${md(row.model)} | ${formatInt(row.calls)} | ` +
+              `${formatInt(row.inputTokens)} | ${formatInt(row.outputTokens)} | ` +
+              `${formatInt(row.cacheReadTokens)} | ${formatInt(row.cacheWriteTokens)} |`,
+            ),
+          ].join("\n")
+        : "_No LLM calls recorded yet._",
+      "",
+      "## By Task, Role, And Model",
+      "",
+      byTaskModel.length
+        ? [
+            "| Task | Role | Provider | Model | Calls | Input | Output | Cache read | Cache write |",
+            "|---|---|---|---|---:|---:|---:|---:|---:|",
+            ...byTaskModel.map((row) =>
+              `| ${md(formatTaskKind(row.taskKind))} | ${md(row.role)} | ${md(row.provider)} | ${md(row.model)} | ` +
+              `${formatInt(row.calls)} | ${formatInt(row.inputTokens)} | ${formatInt(row.outputTokens)} | ` +
+              `${formatInt(row.cacheReadTokens)} | ${formatInt(row.cacheWriteTokens)} |`,
+            ),
+          ].join("\n")
+        : "_No LLM calls recorded yet._",
+      "",
+      "## By Channel Or Job",
+      "",
+      byChannel.length
+        ? [
+            "| Channel / job | Task | Label | Calls | Input | Output | Cache read | Cache write |",
+            "|---|---|---|---:|---:|---:|---:|---:|",
+            ...byChannel.map((row) =>
+              `| ${md(formatChannel(row.channel))} | ${md(formatTaskKind(row.taskKind))} | ` +
+              `${md(row.taskName || "-")} | ${formatInt(row.calls)} | ${formatInt(row.inputTokens)} | ` +
+              `${formatInt(row.outputTokens)} | ${formatInt(row.cacheReadTokens)} | ` +
+              `${formatInt(row.cacheWriteTokens)} |`,
+            ),
+          ].join("\n")
+        : "_No channel-attributed calls recorded yet._",
+      "",
+      "## Recent Calls",
+      "",
+      recent.length
+        ? [
+            "| Time | Task | Label | Channel | Session | Conversation | Component | Role | Provider | Model | Kind | Input | Output | Cache read | Cache write |",
+            "|---|---|---|---|---|---:|---|---|---|---|---|---:|---:|---:|---:|",
+            ...recent.map((row) =>
+              `| ${md(formatTimestamp(row.ts))} | ${md(formatTaskKind(row.taskKind))} | ` +
+              `${md(row.taskName ?? "-")} | ${md(formatChannel(row.channel ?? ""))} | ` +
+              `${md(row.sessionId ?? "-")} | ${formatOptionalInt(row.conversationId)} | ${md(row.component ?? "-")} | ` +
+              `${md(row.role)} | ${md(row.provider)} | ${md(row.model)} | ${md(row.kind)} | ` +
+              `${formatInt(row.inputTokens)} | ${formatInt(row.outputTokens)} | ` +
+              `${formatInt(row.cacheReadTokens)} | ${formatInt(row.cacheWriteTokens)} |`,
+            ),
+          ].join("\n")
+        : "_No recent calls._",
+    ].join("\n");
+  }
+
   cronDueNow(now: number): CronJobRecord[] {
     return this.db
       .prepare(
@@ -894,6 +1222,64 @@ interface RawMaintenanceJobRow {
   updatedAt: number;
 }
 
+interface LLMUsageTotalsRow {
+  calls: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  callsWithoutTokenData: number | null;
+  errorCalls: number | null;
+  firstTs: number | null;
+  lastTs: number | null;
+}
+
+interface LLMUsageAggregateFields {
+  calls: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+}
+
+interface LLMUsageByTaskRow extends LLMUsageAggregateFields {
+  taskKind: string;
+}
+
+interface LLMUsageByModelRow extends LLMUsageAggregateFields {
+  role: string;
+  provider: string;
+  model: string;
+}
+
+interface LLMUsageByTaskModelRow extends LLMUsageByModelRow {
+  taskKind: string;
+}
+
+interface LLMUsageByChannelRow extends LLMUsageAggregateFields {
+  channel: string;
+  taskKind: string;
+  taskName: string;
+}
+
+interface LLMUsageRecentRow {
+  ts: number;
+  role: string;
+  provider: string;
+  model: string;
+  kind: string;
+  taskKind: string;
+  taskName: string | null;
+  channel: string | null;
+  sessionId: string | null;
+  conversationId: number | null;
+  component: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+}
+
 function toMaintenanceJob(row: RawMaintenanceJobRow): MemoryMaintenanceJob {
   return {
     id: row.id,
@@ -919,6 +1305,59 @@ function folderFromWikiPath(path: string): string {
 function titleFromPath(path: string): string {
   const last = path.split("/").filter(Boolean).at(-1) ?? path;
   return last.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
+}
+
+function isProtectedWikiPagePath(path: string): boolean {
+  return PROTECTED_WIKI_PAGE_PATHS.has(path);
+}
+
+function nullableInt(value: number | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : null;
+}
+
+function formatTimestamp(ts: number): string {
+  return new Date(ts).toISOString();
+}
+
+function formatInt(value: number | null | undefined): string {
+  return String(value ?? 0);
+}
+
+function formatOptionalInt(value: number | null | undefined): string {
+  return value === null || value === undefined ? "-" : String(value);
+}
+
+function formatTaskKind(taskKind: string): string {
+  switch (taskKind) {
+    case "user_message":
+      return "Actual messages";
+    case "cron":
+      return "Cron jobs";
+    case "compaction":
+      return "Context compaction";
+    case "wiki_maintenance":
+      return "Wiki maintenance";
+    case "dream":
+      return "Dreaming";
+    case "tool_security":
+      return "Tool security";
+    case "unknown":
+      return "Unknown";
+    default:
+      return taskKind.replace(/_/g, " ");
+  }
+}
+
+function formatChannel(channel: string): string {
+  if (!channel) return "-";
+  const cron = /^cron:(\d+):(\d+)/.exec(channel);
+  if (cron?.[1]) return `cron #${cron[1]}`;
+  if (channel.startsWith("discord:dm:")) return "Discord DM";
+  return channel;
+}
+
+function md(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\n/g, " ");
 }
 
 function splitTags(tags: string): string[] {

@@ -23,6 +23,8 @@ export interface DiscordTransportOpts {
    * `/pair <code>` in the DM to complete the handshake.
    */
   onPairingMinted?: (record: PairingRecord, sender: { userId: string; userName: string }) => void;
+  /** Repeat interval for Discord typing indicators. Default 8000 ms. */
+  typingIntervalMs?: number;
 }
 
 export class DiscordTransport implements Transport {
@@ -88,13 +90,38 @@ export class DiscordTransport implements Transport {
     }
 
     // 3. Allowed sender — forward to the gateway and reply.
+    const typing = this.startTyping(msg);
     try {
       const session = this.opts.gateway.attach(channel);
       const trace = await session.send(msg.text);
+      typing.stop();
       await this.safeSend(msg.userId, trace.finalText.length > 0 ? trace.finalText : "(no reply)");
     } catch (err) {
+      typing.stop();
       await this.safeSend(msg.userId, `error: ${(err as Error).message}`);
     }
+  }
+
+  private startTyping(msg: DirectMessage): { stop(): void } {
+    if (!msg.sendTyping) return { stop() {} };
+    let stopped = false;
+    const send = async (): Promise<void> => {
+      try {
+        await msg.sendTyping?.();
+      } catch {
+        // Typing indicators are best-effort and should not affect the turn.
+      }
+    };
+    void send();
+    const interval = setInterval(() => {
+      if (!stopped) void send();
+    }, this.opts.typingIntervalMs ?? 8_000);
+    return {
+      stop() {
+        stopped = true;
+        clearInterval(interval);
+      },
+    };
   }
 
   private async safeSend(userId: string, text: string): Promise<void> {

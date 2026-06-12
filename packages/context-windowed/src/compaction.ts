@@ -1,3 +1,4 @@
+import { withLLMUsageContext } from "@miniclaw/core";
 import type {
   ContextManager,
   ConversationStore,
@@ -256,11 +257,19 @@ export class CompactingContextManager implements ContextManager {
   }
 
   private async callSummarizer(content: string): Promise<string> {
-    const turn = await this.summarizer.chat({
-      system: this.summarizerSystem,
-      messages: [{ role: "user", content }],
-      tools: [],
-    });
+    const turn = await withLLMUsageContext(
+      {
+        taskKind: "compaction",
+        taskName: `conversation #${this.convId} compaction`,
+        conversationId: this.convId,
+        component: "context-windowed",
+      },
+      () => this.summarizer.chat({
+        system: this.summarizerSystem,
+        messages: [{ role: "user", content }],
+        tools: [],
+      }),
+    );
     return turn.text;
   }
 

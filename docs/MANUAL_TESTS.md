@@ -259,9 +259,9 @@ While attached to a daemon session:
 > /exit
 ```
 
-**Expect:** `/status` shows the live conversation id; `/usage` shows tool-call totals plus a by-skill breakdown (write_memory, search_memory, …) accumulated across earlier tests.
+**Expect:** `/status` shows the live conversation id; `/usage` shows tool-call totals plus a by-skill breakdown (write_memory, search_memory, …) accumulated across earlier tests. Open the wiki browser URL from `/status`; its LLM Usage system page shows token totals by task type, model role, model, channel/job, and recent calls. Actual user messages, cron jobs, compaction, wiki maintenance, dreaming, and tool-security checks should appear as separate buckets when those flows have run. The page is not returned by `wiki_search`, `wiki_read`, `wiki_list`, or automatic memory retrieval.
 
-**Proves:** `SessionControls.status` + `auditUsage` rollup are wired through the meta-commands.
+**Proves:** `SessionControls.status` + `auditUsage` rollup are wired through the meta-commands, and protected user-only LLM usage statistics are persisted separately from LLM-facing wiki pages.
 
 ---
 

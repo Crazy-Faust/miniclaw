@@ -10,6 +10,8 @@ export interface DirectMessage {
   userName: string;
   /** Message body. */
   text: string;
+  /** Send a transient typing indicator in the source DM channel. */
+  sendTyping?: () => Promise<void>;
 }
 
 export interface DiscordClient {

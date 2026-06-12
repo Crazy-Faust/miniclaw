@@ -333,7 +333,9 @@ Long-term memory is wiki-first in SQLite mode:
 
 `/dream` runs a bounded background review of recent conversations with truncated tool calls. It uses normal skills to write useful source memories or schedule clear follow-up work, and it is also covered by high-security tool gating when that mode is enabled.
 
-The local wiki browser starts automatically for long-running SQLite REPL/daemon sessions unless `MINICLAW_WIKI_BROWSER=off`. Open the URL shown in the REPL banner or `/status` to browse folders, pages, source-memory ids, tags, and search results. It binds to `127.0.0.1` by default and requires the random token in the URL or an `Authorization: Bearer ...` header.
+The local wiki browser starts automatically for long-running SQLite REPL/daemon sessions unless `MINICLAW_WIKI_BROWSER=off`. Open the URL shown in the REPL banner or `/status` to browse folders, pages, tags, source-memory ids, search results, and user-only LLM usage statistics. It binds to `127.0.0.1` by default and requires the random token in the URL or an `Authorization: Bearer ...` header.
+
+LLM usage is recorded for primary and small-model calls when SQLite storage is active. The browser exposes it as a protected system page generated from `llm_usage_events`, with breakdowns by task type, model role, model, channel/job, and recent calls. That distinguishes actual user messages from cron jobs, context compaction, wiki maintenance, dreaming, and high-security tool checks. The page is for the user only: normal wiki search/read/list skills and automatic context retrieval hide it from the LLM, and model-generated wiki maintenance actions cannot modify it.
 
 ---
 
@@ -378,7 +380,7 @@ Restart the agent (`/exit` and `pnpm dev` again, or `daemon stop` + `daemon star
 /skills         List registered skills.
 /memories [N]   Show the N most recent memories (default 10).
 /status         Provider, model, small model, security mode, db path, current conversation id, workspace, skill count.
-/usage          Tool-call counts from the audit log (total + by skill).
+/usage          Tool-call counts from the audit log (total + by skill). LLM token usage is in the wiki browser.
 /reset          Start a fresh conversation (alias of /clear).
 /compact        Summarize older turns to free up context budget.
 /dream          Review recent conversations and extract useful memories/tasks.

@@ -35,7 +35,7 @@ interface DiscordJsClient {
 interface DiscordJsMessage {
   content: string;
   author: { bot: boolean; id: string; username: string; displayName?: string };
-  channel: { type: number };
+  channel: { type: number; sendTyping?: () => Promise<void> };
   reply?(text: string): Promise<unknown>;
 }
 
@@ -69,6 +69,9 @@ export const discordJsClientFactory: DiscordClientFactory = {
         userId: msg.author.id,
         userName: msg.author.displayName ?? msg.author.username,
         text: msg.content,
+        sendTyping: msg.channel.sendTyping
+          ? () => msg.channel.sendTyping!()
+          : undefined,
       });
     });
 

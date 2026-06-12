@@ -1,4 +1,4 @@
-import type { LLMProvider } from "@miniclaw/core";
+import { withLLMUsageContext, type LLMProvider } from "@miniclaw/core";
 import type { ToolGuard } from "./agent.ts";
 
 export const TOOL_SECURITY_SYSTEM_PROMPT = `You are miniclaw's high-security tool-call gate.
@@ -33,21 +33,28 @@ export function createLLMToolSecurityGuard(
 ): ToolGuard {
   const maxArgsChars = opts.maxArgsChars ?? 8_000;
   return async ({ userMessage, call, skill }) => {
-    const turn = await llm.chat({
-      system: TOOL_SECURITY_SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: buildToolSecurityPrompt({
-            userMessage,
-            toolName: call.name,
-            toolDescription: skill.description,
-            toolArgs: truncate(safeJson(call.args), maxArgsChars),
-          }),
-        },
-      ],
-      tools: [],
-    });
+    const turn = await withLLMUsageContext(
+      {
+        taskKind: "tool_security",
+        taskName: `security gate: ${call.name}`,
+        component: "tool-security",
+      },
+      () => llm.chat({
+        system: TOOL_SECURITY_SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: buildToolSecurityPrompt({
+              userMessage,
+              toolName: call.name,
+              toolDescription: skill.description,
+              toolArgs: truncate(safeJson(call.args), maxArgsChars),
+            }),
+          },
+        ],
+        tools: [],
+      }),
+    );
     if (turn.kind !== "final") {
       return {
         allow: false,

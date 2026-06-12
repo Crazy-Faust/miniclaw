@@ -110,6 +110,31 @@ CREATE TABLE IF NOT EXISTS wiki_log (
 
 CREATE INDEX IF NOT EXISTS wiki_log_ts_idx ON wiki_log(ts);
 
+CREATE TABLE IF NOT EXISTS llm_usage_events (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts                 INTEGER NOT NULL,
+  provider           TEXT    NOT NULL,
+  model              TEXT    NOT NULL,
+  role               TEXT    NOT NULL,
+  kind               TEXT    NOT NULL,
+  task_kind          TEXT    NOT NULL DEFAULT 'unknown',
+  task_name          TEXT,
+  channel            TEXT,
+  session_id         TEXT,
+  conversation_id    INTEGER,
+  component          TEXT,
+  input_tokens       INTEGER,
+  output_tokens      INTEGER,
+  cache_read_tokens  INTEGER,
+  cache_write_tokens INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS llm_usage_events_ts_idx
+  ON llm_usage_events(ts);
+
+CREATE INDEX IF NOT EXISTS llm_usage_events_model_idx
+  ON llm_usage_events(role, provider, model);
+
 CREATE TABLE IF NOT EXISTS memory_maintenance_jobs (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   type           TEXT    NOT NULL,

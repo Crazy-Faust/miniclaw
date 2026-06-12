@@ -1,3 +1,4 @@
+import { currentLLMUsageContext, withLLMUsageContext } from "@miniclaw/core";
 import type {
   AssistantTurn,
   AuditSink,
@@ -36,6 +37,10 @@ export interface AgentDeps {
   dbPath: string;
   /** Logical session/channel id threaded to skills via SkillContext. */
   channel?: string;
+  /** Session id for usage attribution. */
+  sessionId?: string;
+  /** Conversation id for usage attribution. */
+  conversationId?: number;
   /** Workspace sandbox root threaded to every skill via SkillContext. */
   workspaceRoot?: string;
   /**
@@ -128,6 +133,21 @@ export class Agent {
   constructor(private readonly deps: AgentDeps) {}
 
   async runTurn(userMsg: string, hooks?: AgentTurnHooks): Promise<TurnTrace> {
+    const existingContext = currentLLMUsageContext();
+    return await withLLMUsageContext(
+      {
+        taskKind: existingContext?.taskKind ?? inferTaskKind(this.deps.channel),
+        taskName: existingContext?.taskName ?? inferTaskName(this.deps.channel),
+        channel: this.deps.channel,
+        sessionId: this.deps.sessionId,
+        conversationId: this.deps.conversationId,
+        component: existingContext?.component ?? "agent",
+      },
+      async () => this.runTurnInner(userMsg, hooks),
+    );
+  }
+
+  private async runTurnInner(userMsg: string, hooks?: AgentTurnHooks): Promise<TurnTrace> {
     this.deps.context.recordUser(userMsg);
     const { system, messages } = this.deps.context.prepareAsync
       ? await this.deps.context.prepareAsync(userMsg)
@@ -325,6 +345,19 @@ function safeStringify(v: unknown): string {
 
 function summarize(s: string, max = 500): string {
   return s.length <= max ? s : s.slice(0, max) + `... (+${s.length - max} bytes)`;
+}
+
+function inferTaskKind(channel: string | undefined): string {
+  return channel?.startsWith("cron:") ? "cron" : "user_message";
+}
+
+function inferTaskName(channel: string | undefined): string {
+  if (!channel) return "direct user message";
+  const cron = /^cron:(\d+):/.exec(channel);
+  if (cron?.[1]) return `cron #${cron[1]}`;
+  if (channel.startsWith("discord:dm:")) return "discord direct message";
+  if (channel === "cli") return "cli message";
+  return channel;
 }
 
 export function defaultIsTransient(err: unknown): boolean {

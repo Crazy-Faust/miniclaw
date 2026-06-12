@@ -116,6 +116,121 @@ describe("SqliteStore", () => {
     expect(store.searchKnowledge("alpha", 10, { includeRawSources: false })).toHaveLength(1);
   });
 
+  it("creates and updates a protected user-only LLM usage wiki page", () => {
+    const initial = store.readLLMUsageWikiPage();
+    expect(initial).toMatchObject({
+      path: "system/llm-usage.md",
+      folder: "system",
+      title: "LLM Usage",
+    });
+    expect(initial.content).toContain("No LLM calls recorded yet");
+
+    store.recordLLMUsage({
+      provider: "openai",
+      model: "gpt-test",
+      role: "primary",
+      kind: "final",
+      context: {
+        taskKind: "user_message",
+        taskName: "discord direct message",
+        channel: "discord:dm:u1",
+        sessionId: "sess-1",
+        conversationId: 42,
+        component: "agent",
+      },
+      usage: {
+        inputTokens: 10,
+        outputTokens: 4,
+        cacheReadTokens: 2,
+        cacheWriteTokens: 1,
+      },
+      ts: 1_700_000_000_000,
+    });
+    store.recordLLMUsage({
+      provider: "openai",
+      model: "gpt-small",
+      role: "small",
+      kind: "final",
+      context: {
+        taskKind: "compaction",
+        taskName: "conversation #42 compaction",
+        channel: "discord:dm:u1",
+        conversationId: 42,
+        component: "context-windowed",
+      },
+      usage: {
+        inputTokens: 6,
+        outputTokens: 2,
+      },
+      ts: 1_700_000_000_001,
+    });
+
+    const updated = store.readLLMUsageWikiPage();
+    expect(updated.content).toContain("| Calls | 2 |");
+    expect(updated.content).toContain("| Input tokens | 16 |");
+    expect(updated.content).toContain("| Output tokens | 6 |");
+    expect(updated.content).toContain("| Actual messages | 1 | 10 | 4 | 2 | 1 |");
+    expect(updated.content).toContain("| Context compaction | 1 | 6 | 2 | 0 | 0 |");
+    expect(updated.content).toContain("| primary | openai | gpt-test | 1 | 10 | 4 | 2 | 1 |");
+    expect(updated.content).toContain("| Context compaction | small | openai | gpt-small | 1 | 6 | 2 | 0 | 0 |");
+    expect(updated.content).toContain("| Discord DM | Actual messages | discord direct message | 1 | 10 | 4 | 2 | 1 |");
+  });
+
+  it("does not expose the protected LLM usage page through normal wiki APIs", () => {
+    store.recordLLMUsage({
+      provider: "anthropic",
+      model: "claude-test",
+      role: "small",
+      kind: "tool_use",
+      usage: { inputTokens: 7, outputTokens: 3 },
+    });
+
+    expect(store.readWikiPage("system/llm-usage.md")).toBeNull();
+    expect(store.listWikiPages(undefined, 10).map((p) => p.path)).not.toContain("system/llm-usage.md");
+    expect(store.listWikiFolders().map((f) => f.path)).not.toContain("system");
+    expect(store.searchWiki("usage", 10).map((p) => p.path)).not.toContain("system/llm-usage.md");
+    expect(store.searchKnowledge("usage", 10).map((p) => p.path)).not.toContain("system/llm-usage.md");
+  });
+
+  it("prevents model-maintained wiki actions from modifying the LLM usage page", () => {
+    store.recordLLMUsage({
+      provider: "openai",
+      model: "gpt-test",
+      role: "primary",
+      kind: "final",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    });
+    const before = store.readLLMUsageWikiPage().content;
+
+    expect(() =>
+      store.upsertWikiPage({
+        path: "system/llm-usage.md",
+        folder: "system",
+        title: "Tampered",
+        content: "tampered",
+      }),
+    ).toThrow(/system-protected/);
+
+    store.applyWikiMaintenanceActions([
+      {
+        type: "upsert_page",
+        path: "system/llm-usage.md",
+        folder: "system",
+        title: "Tampered",
+        content: "tampered",
+      },
+      {
+        type: "add_link",
+        fromPath: "system/llm-usage.md",
+        toPath: "personal/preferences.md",
+      },
+    ]);
+
+    const after = store.readLLMUsageWikiPage().content;
+    expect(after).toBe(before);
+    expect(after).not.toContain("tampered");
+  });
+
   it("falls back to raw source memories while no wiki page matches", () => {
     const id = store.add("fact", "beta raw memory", ["raw"], { folder: "research" });
     expect(store.searchKnowledge("beta", 10)).toEqual([

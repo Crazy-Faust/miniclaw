@@ -3,6 +3,12 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import type { WikiPageRecord, WikiStore } from "@miniclaw/core";
 
+type PageListRecord = Pick<WikiPageRecord, "path" | "folder" | "title" | "tags">;
+
+interface LLMUsagePageReader {
+  readLLMUsageWikiPage(): WikiPageRecord;
+}
+
 export interface WikiBrowserOpts {
   wiki: WikiStore;
   host?: string;
@@ -65,6 +71,37 @@ export function handleWikiBrowserRequest(
     sendHtml(res, 200, page(`Search: ${q}`, renderSearch(wiki, token, q)));
     return;
   }
+  if (url.pathname === "/usage") {
+    const usagePage = readLLMUsagePage(wiki);
+    if (!usagePage) {
+      sendHtml(res, 404, page("LLM Usage unavailable", "<h1>LLM Usage unavailable</h1>"));
+      return;
+    }
+    sendHtml(res, 200, page("LLM Usage", renderUsagePage(usagePage, token)));
+    return;
+  }
+  if (url.pathname === "/folder") {
+    const folderPath = url.searchParams.get("path") ?? "";
+    const folders = wiki.listWikiFolders();
+    const folder = folders.find((f) => f.path === folderPath) ?? null;
+    const pages = folderPath ? wiki.listWikiPages(folderPath, 500) : [];
+    if (!folderPath || (!folder && pages.length === 0)) {
+      sendHtml(res, 404, page("Folder not found", `<h1>Folder not found</h1><p>${escapeHtml(folderPath)}</p>`));
+      return;
+    }
+    sendHtml(res, 200, page(`Folder: ${folderPath}`, renderFolder(folderPath, folder?.title ?? folderPath, pages, token)));
+    return;
+  }
+  if (url.pathname === "/tag") {
+    const tag = url.searchParams.get("tag") ?? "";
+    const pages = tag ? filterPagesByTag(wiki.listWikiPages(undefined, 500), tag) : [];
+    if (!tag || pages.length === 0) {
+      sendHtml(res, 404, page("Tag not found", `<h1>Tag not found</h1><p>${escapeHtml(tag)}</p>`));
+      return;
+    }
+    sendHtml(res, 200, page(`Tag: ${tag}`, renderTag(tag, pages, token)));
+    return;
+  }
   if (url.pathname === "/page") {
     const path = url.searchParams.get("path") ?? "";
     const rec = path ? wiki.readWikiPage(path) : null;
@@ -76,7 +113,10 @@ export function handleWikiBrowserRequest(
     return;
   }
   if (url.pathname === "/api/pages") {
-    sendJson(res, 200, wiki.listWikiPages(undefined, 500));
+    const folder = url.searchParams.get("folder") ?? undefined;
+    const tag = url.searchParams.get("tag") ?? undefined;
+    const pages = wiki.listWikiPages(folder, 500);
+    sendJson(res, 200, tag ? filterPagesByTag(pages, tag) : pages);
     return;
   }
   if (url.pathname === "/api/page") {
@@ -89,13 +129,24 @@ export function handleWikiBrowserRequest(
     sendJson(res, 200, rec);
     return;
   }
+  if (url.pathname === "/api/usage") {
+    const usagePage = readLLMUsagePage(wiki);
+    if (!usagePage) {
+      sendJson(res, 404, { error: "not available" });
+      return;
+    }
+    sendJson(res, 200, usagePage);
+    return;
+  }
 
   sendText(res, 404, "not found");
 }
 
 function renderIndex(wiki: WikiStore, token: string): string {
   const folders = wiki.listWikiFolders();
-  const pages = wiki.listWikiPages(undefined, 200);
+  const allPages = wiki.listWikiPages(undefined, 500);
+  const pages = allPages.slice(0, 200);
+  const tags = collectTagCounts(allPages);
   return `
     <header>
       <h1>LLM Wiki</h1>
@@ -107,10 +158,20 @@ function renderIndex(wiki: WikiStore, token: string): string {
     </header>
     <section>
       <h2>Folders</h2>
-      ${folders.length === 0 ? "<p class=\"muted\">No folders yet.</p>" : `<ul>${folders.map((f) =>
-        `<li><strong>${escapeHtml(f.path)}</strong> <span class="muted">${escapeHtml(f.title)}</span></li>`,
-      ).join("")}</ul>`}
+      ${folders.length === 0 ? "<p class=\"muted\">No folders yet.</p>" : renderFolderList(folders, token)}
     </section>
+    <section>
+      <h2>Tags</h2>
+      ${tags.length === 0 ? "<p class=\"muted\">No tags yet.</p>" : renderTagList(tags, token)}
+    </section>
+    ${hasLLMUsagePage(wiki) ? `
+      <section>
+        <h2>System</h2>
+        <ul class="system-links">
+          <li><a href="${href(`/usage?token=${encodeURIComponent(token)}`)}">LLM Usage</a> <span class="muted">user-only statistics</span></li>
+        </ul>
+      </section>
+    ` : ""}
     <section>
       <h2>Pages</h2>
       ${pages.length === 0 ? "<p class=\"muted\">No wiki pages yet. Write memories, then run /wiki_maintain.</p>" : renderPageList(pages, token)}
@@ -118,10 +179,52 @@ function renderIndex(wiki: WikiStore, token: string): string {
   `;
 }
 
+function renderUsagePage(rec: WikiPageRecord, token: string): string {
+  return `
+    <p><a href="${href(`/?token=${encodeURIComponent(token)}`)}">← index</a></p>
+    <article>
+      <h1>${escapeHtml(rec.title)}</h1>
+      <dl>
+        <dt>Path</dt><dd><code>${escapeHtml(rec.path)}</code></dd>
+        <dt>Updated</dt><dd>${new Date(rec.updatedAt).toISOString()}</dd>
+      </dl>
+      <pre>${escapeHtml(rec.content)}</pre>
+    </article>
+  `;
+}
+
+function renderFolder(
+  folderPath: string,
+  folderTitle: string,
+  pages: PageListRecord[],
+  token: string,
+): string {
+  return `
+    <p><a href="${href(`/?token=${encodeURIComponent(token)}`)}">← index</a></p>
+    <h1>${escapeHtml(folderTitle)}</h1>
+    <p><code>${escapeHtml(folderPath)}</code></p>
+    <section>
+      <h2>Pages</h2>
+      ${pages.length === 0 ? "<p class=\"muted\">No pages in this folder yet.</p>" : renderPageList(pages, token)}
+    </section>
+  `;
+}
+
+function renderTag(tag: string, pages: PageListRecord[], token: string): string {
+  return `
+    <p><a href="${href(`/?token=${encodeURIComponent(token)}`)}">← index</a></p>
+    <h1>Tag: ${escapeHtml(tag)}</h1>
+    <section>
+      <h2>Pages</h2>
+      ${renderPageList(pages, token)}
+    </section>
+  `;
+}
+
 function renderSearch(wiki: WikiStore, token: string, q: string): string {
   const hits = q.trim() ? wiki.searchWiki(q, 50) : [];
   return `
-    <p><a href="/?token=${encodeURIComponent(token)}">← index</a></p>
+    <p><a href="${href(`/?token=${encodeURIComponent(token)}`)}">← index</a></p>
     <h1>Search</h1>
     <form action="/search" method="get">
       <input type="hidden" name="token" value="${escapeHtml(token)}">
@@ -135,13 +238,13 @@ function renderSearch(wiki: WikiStore, token: string, q: string): string {
 
 function renderPage(rec: WikiPageRecord, token: string): string {
   return `
-    <p><a href="/?token=${encodeURIComponent(token)}">← index</a></p>
+    <p><a href="${href(`/?token=${encodeURIComponent(token)}`)}">← index</a></p>
     <article>
       <h1>${escapeHtml(rec.title)}</h1>
       <dl>
         <dt>Path</dt><dd><code>${escapeHtml(rec.path)}</code></dd>
-        <dt>Folder</dt><dd>${escapeHtml(rec.folder)}</dd>
-        <dt>Tags</dt><dd>${rec.tags.length ? rec.tags.map(escapeHtml).join(", ") : "<span class=\"muted\">none</span>"}</dd>
+        <dt>Folder</dt><dd>${renderFolderLink(rec.folder, token)}</dd>
+        <dt>Tags</dt><dd>${rec.tags.length ? renderTagLinks(rec.tags, token) : "<span class=\"muted\">none</span>"}</dd>
         <dt>Source memories</dt><dd>${rec.sourceMemoryIds.length ? rec.sourceMemoryIds.join(", ") : "<span class=\"muted\">none</span>"}</dd>
         <dt>Updated</dt><dd>${new Date(rec.updatedAt).toISOString()}</dd>
       </dl>
@@ -150,13 +253,40 @@ function renderPage(rec: WikiPageRecord, token: string): string {
   `;
 }
 
-function renderPageList(pages: Array<Pick<WikiPageRecord, "path" | "folder" | "title" | "tags">>, token: string): string {
+function renderFolderList(
+  folders: Array<{ path: string; title: string }>,
+  token: string,
+): string {
+  return `<ul class="folders">${folders.map((f) =>
+    `<li>${renderFolderLink(f.path, token)} <span class="muted">${escapeHtml(f.title)}</span></li>`,
+  ).join("")}</ul>`;
+}
+
+function renderTagList(tags: Array<{ tag: string; count: number }>, token: string): string {
+  return `<ul class="tag-list">${tags.map(({ tag, count }) =>
+    `<li>${renderTagLink(tag, token)} <span class="muted">${count}</span></li>`,
+  ).join("")}</ul>`;
+}
+
+function renderPageList(pages: PageListRecord[], token: string): string {
   if (pages.length === 0) return "";
   return `<ul class="pages">${pages.map((p) =>
-    `<li><a href="/page?token=${encodeURIComponent(token)}&path=${encodeURIComponent(p.path)}">${escapeHtml(p.title)}</a>` +
-    ` <code>${escapeHtml(p.path)}</code> <span class="muted">${escapeHtml(p.folder)}</span>` +
-    `${p.tags.length ? ` <span class="tags">${p.tags.map(escapeHtml).join(", ")}</span>` : ""}</li>`,
+    `<li><a href="${href(`/page?token=${encodeURIComponent(token)}&path=${encodeURIComponent(p.path)}`)}">${escapeHtml(p.title)}</a>` +
+    ` <code>${escapeHtml(p.path)}</code> <span class="muted">${renderFolderLink(p.folder, token)}</span>` +
+    `${p.tags.length ? ` <span class="tags">${renderTagLinks(p.tags, token)}</span>` : ""}</li>`,
   ).join("")}</ul>`;
+}
+
+function renderFolderLink(path: string, token: string): string {
+  return `<a href="${href(`/folder?token=${encodeURIComponent(token)}&path=${encodeURIComponent(path)}`)}">${escapeHtml(path)}</a>`;
+}
+
+function renderTagLinks(tags: string[], token: string): string {
+  return tags.map((tag) => renderTagLink(tag, token)).join(", ");
+}
+
+function renderTagLink(tag: string, token: string): string {
+  return `<a href="${href(`/tag?token=${encodeURIComponent(token)}&tag=${encodeURIComponent(tag)}`)}">${escapeHtml(tag)}</a>`;
 }
 
 function page(title: string, body: string): string {
@@ -182,6 +312,12 @@ function page(title: string, body: string): string {
   dt { font-weight: 700; }
   dd { margin: 0; }
   .muted { color: #777; }
+  .folders { padding-left: 20px; }
+  .folders li { margin: 7px 0; }
+  .system-links { padding-left: 20px; }
+  .system-links li { margin: 7px 0; }
+  .tag-list { display: flex; flex-wrap: wrap; gap: 8px 14px; padding-left: 0; list-style: none; }
+  .tag-list li { margin: 0; }
   .pages { padding-left: 20px; }
   .pages li { margin: 7px 0; }
   .tags { color: #777; font-size: 12px; }
@@ -224,8 +360,40 @@ function linkWikiRefs(escaped: string, token: string): string {
   return escaped.replace(/\[\[([^\]]+)\]\]/g, (_m, raw: string) => {
     const path = raw.trim();
     const label = escapeHtml(path);
-    return `<a href="/page?token=${encodeURIComponent(token)}&path=${encodeURIComponent(path)}">[[${label}]]</a>`;
+    return `<a href="${href(`/page?token=${encodeURIComponent(token)}&path=${encodeURIComponent(path)}`)}">[[${label}]]</a>`;
   });
+}
+
+function href(value: string): string {
+  return escapeHtml(value);
+}
+
+function collectTagCounts(pages: PageListRecord[]): Array<{ tag: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const page of pages) {
+    for (const raw of page.tags) {
+      const tag = raw.trim();
+      if (!tag) continue;
+      counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([tag, count]) => ({ tag, count }));
+}
+
+function filterPagesByTag(pages: PageListRecord[], tag: string): PageListRecord[] {
+  return pages.filter((page) => page.tags.some((t) => t === tag));
+}
+
+function hasLLMUsagePage(wiki: WikiStore): boolean {
+  return typeof (wiki as Partial<LLMUsagePageReader>).readLLMUsageWikiPage === "function";
+}
+
+function readLLMUsagePage(wiki: WikiStore): WikiPageRecord | null {
+  const reader = wiki as Partial<LLMUsagePageReader>;
+  if (typeof reader.readLLMUsageWikiPage !== "function") return null;
+  return reader.readLLMUsageWikiPage();
 }
 
 function escapeHtml(s: string): string {
