@@ -43,11 +43,11 @@ describe("WindowedContextManager.prepare", () => {
 
     const { system, messages } = mgr.prepare("hello");
     expect(system).toMatch(/miniclaw/);
-    expect(system).not.toMatch(/Relevant raw memories/);
+    expect(system).not.toMatch(/Relevant raw memory index/);
     expect(messages).toEqual([{ role: "user", content: "hello" }]);
   });
 
-  it("injects retrieved memories into the system prompt", () => {
+  it("injects retrieved memories as pointers into the system prompt", () => {
     const memory = new FakeMemoryStore();
     memory.hits = [
       makeMemoryRecord(7, "preference", "user prefers helix"),
@@ -57,9 +57,12 @@ describe("WindowedContextManager.prepare", () => {
     const mgr = new WindowedContextManager({ memory, conversations, conversationId: 1 });
 
     const { system } = mgr.prepare("what editor do I use?");
-    expect(system).toMatch(/Relevant raw memories/);
-    expect(system).toContain("(#7, preference) user prefers helix");
-    expect(system).toContain("(#8, fact) lives in Berlin");
+    expect(system).toMatch(/Relevant raw memory index/);
+    expect(system).toContain('raw_source id=7 kind="preference"');
+    expect(system).toContain('raw_source id=8 kind="fact"');
+    expect(system).toContain("use search_memory with a targeted query");
+    expect(system).not.toContain("user prefers helix");
+    expect(system).not.toContain("lives in Berlin");
   });
 
   it("forwards historyTurns and memoryHits to the stores", () => {

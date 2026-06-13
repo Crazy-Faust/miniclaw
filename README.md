@@ -329,7 +329,7 @@ Long-term memory is wiki-first in SQLite mode:
 - `MemoryWikiWorker` drains that queue in long-running REPL/daemon sessions only when a small LLM is configured.
 - `/wiki_maintain` or the `wiki_maintain` skill can manually drain queued jobs.
 - The maintainer asks the model for strict JSON actions and applies them through typed SQLite methods only. Raw memory rows are never automatically deleted.
-- `search_memory` and automatic context retrieval search synthesized wiki pages first. Active raw source rows are used as a fallback while no matching wiki page exists.
+- `search_memory` returns synthesized wiki pages first. Automatic context retrieval injects only a query-scoped memory index, so the model must call `wiki_read` or `search_memory` before relying on the full memory content. Active raw source rows are used as fallback index entries while no matching wiki page exists.
 
 `/dream` runs a bounded background review of recent conversations with truncated tool calls. It uses normal skills to write useful source memories or schedule clear follow-up work, and it is also covered by high-security tool gating when that mode is enabled.
 
@@ -490,7 +490,7 @@ packages/
 ├── skills-browser/       browser_open/read_page/screenshot/click/fill — Playwright-backed.
 │
 │  ── context strategies
-├── context-windowed/     Sliding window + wiki-first memory retrieval +
+├── context-windowed/     Sliding window + wiki-first memory index retrieval +
 │                         compaction + AGENTS.md/TOOLS.md injection.
 ├── context-stateless/    System + new user message only. No history, no retrieval.
 │

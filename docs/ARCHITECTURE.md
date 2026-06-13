@@ -194,7 +194,7 @@ flowchart TB
   usage["llm_usage_events<br/>primary + small model usage"]
   usagePage["Protected LLM Usage page<br/>browser-only, hidden from LLM"]
   search["search_memory / context retrieval<br/>KnowledgeStore.searchKnowledge"]
-  prompt["System prompt<br/>wiki pages first, raw sources fallback"]
+  prompt["System prompt<br/>query-scoped memory index only"]
   browser["Local wiki browser<br/>token-authenticated localhost UI"]
 
   write --> sqlite
@@ -215,7 +215,7 @@ flowchart TB
   usagePage --> browser
 ```
 
-Raw `memories` rows are immutable source history. The synthesized wiki is the long-term memory surface the agent reads from. `searchKnowledge()` prefers matching wiki pages; active raw source rows are injected only while no wiki page matches yet.
+Raw `memories` rows are immutable source history. The synthesized wiki is the long-term memory surface the agent reads from. `searchKnowledge()` prefers matching wiki pages; active raw source rows appear only as fallback index entries while no wiki page matches yet. Automatic context retrieval injects handles and metadata, not full memory content; the model must call `wiki_read` or `search_memory` before relying on a memory.
 
 LLM usage statistics are user-facing system data, not long-term memory. SQLite records primary/small model call usage in `llm_usage_events`, including task attribution for user messages, cron jobs, compaction, wiki maintenance, dreaming, and tool-security checks. It renders a protected `system/llm-usage.md` browser page with totals by task, model role, channel/job, and recent call. Normal wiki read/list/search APIs hide that page, and model-generated maintenance actions cannot update or link it.
 

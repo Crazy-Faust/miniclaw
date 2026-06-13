@@ -74,7 +74,7 @@ describe("CompactingContextManager.prepareAsync — under budget", () => {
     expect(messages).toHaveLength(7);
   });
 
-  it("injects wiki retrieval as the long-term memory surface when KnowledgeStore is available", async () => {
+  it("injects wiki retrieval as index entries when KnowledgeStore is available", async () => {
     const conversations = new InMemoryStore();
     const convId = conversations.newConversation();
     const mgr = new CompactingContextManager({
@@ -87,12 +87,14 @@ describe("CompactingContextManager.prepareAsync — under budget", () => {
 
     const { system } = await mgr.prepareAsync("editor?");
 
-    expect(system).toContain("Relevant long-term memory wiki pages retrieved");
+    expect(system).toContain("Relevant long-term memory index");
     expect(system).toContain("personal/preferences.md");
-    expect(system).not.toContain("Relevant raw memory sources");
+    expect(system).toContain("use wiki_read with this path");
+    expect(system).not.toContain("Synthesized preference page");
+    expect(system).not.toContain("Relevant raw memory source index");
   });
 
-  it("labels raw memory hits as fallback when no wiki page matches yet", async () => {
+  it("labels raw memory hits as fallback index entries when no wiki page matches yet", async () => {
     const conversations = new InMemoryStore();
     const convId = conversations.newConversation();
     const mgr = new CompactingContextManager({
@@ -114,8 +116,11 @@ describe("CompactingContextManager.prepareAsync — under budget", () => {
 
     const { system } = await mgr.prepareAsync("editor?");
 
-    expect(system).toContain("Relevant raw memory sources retrieved because no wiki page matched yet");
-    expect(system).toContain("user prefers helix");
+    expect(system).toContain("Relevant raw memory source index");
+    expect(system).toContain("raw_source id=1");
+    expect(system).toContain('title="Raw source memory #1"');
+    expect(system).toContain("use search_memory with a targeted query");
+    expect(system).not.toContain("user prefers helix");
   });
 });
 

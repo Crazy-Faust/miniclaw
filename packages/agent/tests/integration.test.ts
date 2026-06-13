@@ -63,7 +63,7 @@ describe("Agent integration (real wiring across packages)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("recalls a memory written in a prior turn via the retrieved-memory system-prompt injection", async () => {
+  it("receives a memory index pointer for a memory written in a prior turn", async () => {
     // Choose terms that FTS5 will actually tokenize-match in the follow-up
     // ("helix" appears in both the stored memory and the recall query).
     const llm = new RecordingFakeLLM([
@@ -94,11 +94,14 @@ describe("Agent integration (real wiring across packages)", () => {
     const trace = await agent.runTurn("what helix editor do I prefer?");
 
     expect(trace.finalText).toMatch(/helix/i);
-    // The 2nd-turn LLM call should have the source fallback injected until
-    // wiki maintenance has compiled it into a page.
+    // The 2nd-turn LLM call should have only the source fallback index entry
+    // until wiki maintenance has compiled it into a page.
     const turn2 = llm.calls.at(-1)!;
-    expect(turn2.system).toMatch(/Relevant raw memory sources/);
-    expect(turn2.system).toContain("user prefers the helix editor");
+    expect(turn2.system).toMatch(/Relevant raw memory source index/);
+    expect(turn2.system).toContain("raw_source id=1");
+    expect(turn2.system).toContain('tags=["editor"]');
+    expect(turn2.system).toContain("use search_memory with a targeted query");
+    expect(turn2.system).not.toContain("user prefers the helix editor");
   });
 
   it("runs the shell skill and writes a successful audit_log row", async () => {

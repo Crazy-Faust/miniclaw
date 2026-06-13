@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Sliding-window ContextManager that injects retrieved memories into the system prompt.",
+  "description": "Sliding-window ContextManager that injects retrieved memory indexes into the system prompt.",
   "exports": {
     ".": "./src/index.ts"
   },
