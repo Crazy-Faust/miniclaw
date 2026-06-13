@@ -1,5 +1,7 @@
 export {
   WindowedContextManager,
+  formatKnowledgeContext,
+  formatRawMemoryIndex,
   loadPromptInjectionFiles,
   type WindowedContextOpts,
 } from "./manager.ts";

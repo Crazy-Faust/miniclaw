@@ -2,7 +2,7 @@
 
 A lightweight, local-first AI agent. It maps natural-language requests to a small set of safe tools, runs them on your machine, and keeps an auditable trail of everything in SQLite.
 
-The repo is a **pnpm workspace** of 25 small packages. Every major subsystem (LLM provider, memory store, context strategy, skill, I/O, transport) is its own package behind an interface in `@miniclaw/core`, so each can be swapped or extended independently.
+The repo is a **pnpm workspace** of 28 small packages. Every major subsystem (LLM provider, memory store, context strategy, skill, I/O, transport) is its own package behind an interface in `@miniclaw/core`, so each can be swapped or extended independently.
 
 You can use miniclaw three ways:
 
@@ -72,7 +72,7 @@ Run the test suite — it uses fake LLMs, so **no API key is needed**:
 pnpm test
 ```
 
-You should see ~470 tests pass. If anything fails here, fix it before continuing.
+You should see 500+ tests pass. If anything fails here, fix it before continuing.
 
 ### 4. Get an API key for at least one LLM provider
 
@@ -103,6 +103,18 @@ ANTHROPIC_API_KEY=sk-ant-...                # one of these three (whichever
 # MINICLAW_MODEL=                           # override the per-provider default
 # MINICLAW_BASE_URL=http://localhost:11434/v1   # OpenAI provider only — point at Ollama / LM Studio
 
+# --- Optional small LLM + security ---
+# MINICLAW_SMALL_PROVIDER=openai            # anthropic | openai | gemini
+# MINICLAW_SMALL_MODEL=gpt-4o-mini
+# MINICLAW_SMALL_API_KEY=sk-...             # optional explicit key
+# MINICLAW_SMALL_API_KEY_VAR=OPENAI_API_KEY # optional env var to read instead
+# MINICLAW_SMALL_BASE_URL=http://localhost:11434/v1
+# MINICLAW_SECURITY_MODE=off                # off | medium | high
+
+# --- Local wiki browser ---
+# MINICLAW_WIKI_BROWSER=on                  # on | off
+# MINICLAW_WIKI_BROWSER_PORT=0              # 0 = random available port
+
 # --- Data + sandbox ---
 # MINICLAW_HOME=/path/to/data               # SQLite DB, daemon socket, PID file, logs (default: ~/.miniclaw)
 # MINICLAW_WORKSPACE=/Users/you/projects    # fs / shell / browser sandbox root (default: cwd)
@@ -126,11 +138,13 @@ pnpm dev
 You should see:
 
 ```
-miniclaw — provider anthropic, model claude-sonnet-4-6, db /Users/you/.miniclaw/miniclaw.db, windowed context
+compacting context
+wiki browser: http://127.0.0.1:49152/?token=...
 skills: write_memory, search_memory, shell, sql_query, read_file, list_directory, write_file, apply_patch, fetch_url,
         sessions_list, sessions_history, sessions_send, sessions_spawn,
         reminder_add, cron_add, cron_list, cron_remove, cron_pause,
-        canvas_create, canvas_update, canvas_list, canvas_delete
+        canvas_create, canvas_update, canvas_list, canvas_delete,
+        wiki_search, wiki_read, wiki_list, wiki_maintain, dream
 type /help for slash commands, /exit to quit
 >
 ```
@@ -143,13 +157,15 @@ type /help for slash commands, /exit to quit
 > remember that my preferred editor is helix
 ```
 
-Calls `write_memory` and stores the fact in `~/.miniclaw/miniclaw.db`.
+Calls `write_memory`, stores the fact as raw source material in `~/.miniclaw/miniclaw.db`,
+and queues wiki maintenance when SQLite is in use.
 
 ```
 > what editor do I prefer?
 ```
 
-Calls `search_memory`, finds the entry, answers "helix".
+Calls `search_memory`, which reads the compiled memory wiki first and falls back to
+raw source rows until maintenance has integrated them.
 
 ```
 > list the files in the current directory
@@ -188,6 +204,7 @@ Everything the agent does is logged in `~/.miniclaw/miniclaw.db`:
 ```bash
 sqlite3 ~/.miniclaw/miniclaw.db ".schema"
 sqlite3 ~/.miniclaw/miniclaw.db "select * from memories;"
+sqlite3 ~/.miniclaw/miniclaw.db "select path, title, updated_at from wiki_pages order by updated_at desc limit 20;"
 sqlite3 ~/.miniclaw/miniclaw.db "select ts, skill, ok, result_summary from audit_log order by ts desc limit 20;"
 sqlite3 ~/.miniclaw/miniclaw.db "select id, channel, status, datetime(last_activity_at/1000, 'unixepoch') from sessions;"
 ```
@@ -302,6 +319,26 @@ Schedule syntax: `@once` or `@every <N>(s|m|h|d)`. Real cron expressions are int
 
 ---
 
+## Small LLM, Memory Wiki, And Dreaming
+
+`MINICLAW_SMALL_PROVIDER` configures an optional second model with the same provider interface as the primary model. When set, miniclaw uses it for internal lower-cost work: context compaction, conversation dreaming, automatic memory-wiki maintenance, and high-security tool-call checks. If unset, compaction and manual internal jobs use the primary model; automatic wiki maintenance does not start.
+
+Long-term memory is wiki-first in SQLite mode:
+
+- `write_memory` stores an immutable raw source row in `memories`, adds metadata, and queues a `memory_write` maintenance job.
+- `MemoryWikiWorker` drains that queue in long-running REPL/daemon sessions only when a small LLM is configured.
+- `/wiki_maintain` or the `wiki_maintain` skill can manually drain queued jobs.
+- The maintainer asks the model for strict JSON actions and applies them through typed SQLite methods only. Raw memory rows are never automatically deleted.
+- `search_memory` returns synthesized wiki pages first. Automatic context retrieval injects only a query-scoped memory index, so the model must call `wiki_read` or `search_memory` before relying on the full memory content. Active raw source rows are used as fallback index entries while no matching wiki page exists.
+
+`/dream` runs a bounded background review of recent conversations with truncated tool calls. It uses normal skills to write useful source memories or schedule clear follow-up work, and it is also covered by high-security tool gating when that mode is enabled.
+
+The local wiki browser starts automatically for long-running SQLite REPL/daemon sessions unless `MINICLAW_WIKI_BROWSER=off`. Open the URL shown in the REPL banner or `/status` to browse folders, pages, tags, source-memory ids, search results, and user-only LLM usage statistics. It binds to `127.0.0.1` by default and requires the random token in the URL or an `Authorization: Bearer ...` header.
+
+LLM usage is recorded for primary and small-model calls when SQLite storage is active. The browser exposes it as a protected system page generated from `llm_usage_events`, with breakdowns by task type, model role, model, channel/job, and recent calls. That distinguishes actual user messages from cron jobs, context compaction, wiki maintenance, dreaming, and high-security tool checks. The page is for the user only: normal wiki search/read/list skills and automatic context retrieval hide it from the LLM, and model-generated wiki maintenance actions cannot modify it.
+
+---
+
 ## Discord transport
 
 The daemon can also listen for Discord DMs. Per-channel allowlist + pairing-code onboarding gates strangers out.
@@ -342,10 +379,12 @@ Restart the agent (`/exit` and `pnpm dev` again, or `daemon stop` + `daemon star
 /help           List all slash commands.
 /skills         List registered skills.
 /memories [N]   Show the N most recent memories (default 10).
-/status         Provider, model, db path, current conversation id, workspace, skill count.
-/usage          Tool-call counts from the audit log (total + by skill).
+/status         Provider, model, small model, security mode, db path, current conversation id, workspace, skill count.
+/usage          Tool-call counts from the audit log (total + by skill). LLM token usage is in the wiki browser.
 /reset          Start a fresh conversation (alias of /clear).
 /compact        Summarize older turns to free up context budget.
+/dream          Review recent conversations and extract useful memories/tasks.
+/wiki_maintain  Drain queued memory-to-wiki maintenance jobs.
 /make_skill     Scaffold a brand-new skill package and register it.
 /exit, /quit    End the session.
 ```
@@ -426,9 +465,12 @@ packages/
 │                          PairingStore, Transport, ContextManager)
 │
 │  ── storage backends
-├── memory-sqlite/        SqliteStore — persistent. Implements every store interface.
+├── memory-sqlite/        SqliteStore — persistent. Implements memory, wiki,
+│                         knowledge, maintenance queue, conversation, audit,
+│                         session, cron, allowlist, and pairing interfaces.
 ├── memory-inmemory/      InMemoryStore — no disk, for tests / ephemeral runs.
 ├── memory-vector/        Embedding-based memory retrieval (alternative to FTS5).
+├── memory-wiki/          LLM-maintained SQLite wiki over raw source memories.
 │
 │  ── LLM providers
 ├── llm-anthropic/        Claude.
@@ -448,11 +490,14 @@ packages/
 ├── skills-browser/       browser_open/read_page/screenshot/click/fill — Playwright-backed.
 │
 │  ── context strategies
-├── context-windowed/     Sliding window + memory retrieval + AGENTS.md/TOOLS.md injection.
+├── context-windowed/     Sliding window + wiki-first memory index retrieval +
+│                         compaction + AGENTS.md/TOOLS.md injection.
 ├── context-stateless/    System + new user message only. No history, no retrieval.
 │
 │  ── orchestration
-├── agent/                Agent.runTurn — one user turn end-to-end. Depends on core ONLY.
+├── agent/                Agent.runTurn — one user turn end-to-end, including
+│                         optional high-security tool-call guard. Depends on core ONLY.
+├── dreaming/             Background reflection over conversations using normal skills.
 ├── harness/              Session loop + meta-commands. Reads input via IOAdapter.
 ├── gateway/              Long-running daemon: SessionRegistry, CronScheduler,
 │                         Unix-socket attach, launchd/systemd templates.
@@ -485,7 +530,7 @@ Rule of thumb: if you're not in `cli`, you should not import another package's c
 
 - **Skill**: create `packages/skills-<name>/`, depend on `@miniclaw/core` + `zod`, export a `Skill`. Register it in `cli/src/skills.ts`. The `/make_skill` wizard does most of the boilerplate.
 - **LLM provider**: create `packages/llm-<name>/`, implement `LLMProvider`. Add a case in `cli/src/llm.ts` and an entry in `cli/src/config.ts`'s defaults.
-- **Memory backend**: create `packages/memory-<name>/`, implement `MemoryStore` (and optionally `ConversationStore`, `AuditSink`, `SessionStore`, `CronStore`, `ChannelAllowlist`, `PairingStore`). Swap construction in `cli/src/main.ts`.
+- **Memory backend**: create `packages/memory-<name>/`, implement `MemoryStore` (and optionally `KnowledgeStore`, `WikiStore`, `MemoryMaintenanceQueue`, `ConversationStore`, `AuditSink`, `SessionStore`, `CronStore`, `ChannelAllowlist`, `PairingStore`). Swap construction in `cli/src/main.ts`.
 - **Context strategy**: create `packages/context-<name>/`, implement `ContextManager`. Swap construction in `cli/src/main.ts`.
 - **Front-end** (HTTP, TUI, etc.): implement `IOAdapter` from `@miniclaw/harness` and call `Harness.run()`. No agent / skills / store changes needed.
 - **Transport** (Telegram, Slack, Matrix, ...): create `packages/transport-<name>/`, implement `Transport` from `@miniclaw/core`. Wire it into the daemon in `cli/src/daemon.ts` (gate on an env var like `MINICLAW_TELEGRAM_TOKEN`).
@@ -510,8 +555,9 @@ Per-package commands let two people work in two different packages without rebui
 
 | Skill | What it does | Security |
 |---|---|---|
-| `write_memory` | Persists a fact, preference, or note to long-term memory. | None — pure write to the local DB. |
-| `search_memory` | Token-overlap (FTS5 in SQLite mode) search over prior memories. | None — pure read. |
+| `write_memory` | Ingests a fact, preference, or note as raw source material for the long-term memory wiki, optionally under a wiki folder. | Pure DB write plus a queued wiki-maintenance job in SQLite mode. |
+| `search_memory` | Searches the long-term memory wiki first, with raw source rows as fallback while wiki maintenance is pending. | None — pure read. |
+| `wiki_search` / `_read` / `_list` / `_maintain` | Search/read/list synthesized SQLite wiki pages and drain queued memory-to-wiki maintenance jobs. | Model maintenance writes only through typed store methods; raw memories are never auto-deleted. |
 | `read_file` | Reads a UTF-8 text file as a string (capped at 64KB). | Path must resolve under `MINICLAW_WORKSPACE`. Symlinks pointing out are refused. |
 | `list_directory` | Lists directory entries as JSON: `{name, kind, size}`. | Same workspace sandbox as `read_file`. |
 | `write_file` | Write or overwrite a UTF-8 text file. | Workspace-sandboxed. |
@@ -533,6 +579,10 @@ All tool stdout is wrapped in `<tool_output>...</tool_output>` markers, and the 
 
 Any skill can opt into a user confirmation prompt by setting `requiresConfirmation: true`. In interactive mode the readline IO prompts `approve <skill>(<args>)? [y/N]`. In one-shot mode (no `confirm` method on the IO), the agent **fails closed** — sensitive skills refuse to run. `browser_click` and `browser_fill` set this; the rest don't by default.
 
+### Security mode
+
+`MINICLAW_SECURITY_MODE` accepts `off`, `medium`, or `high`. `off` is the default and disables only the extra LLM policy gate; hardcoded skill sandboxes, schemas, allowlists, and per-skill confirmations still apply. `medium` is reserved for stricter built-in policy and currently has the same extra gate behavior as `off`. `high` adds a small-LLM gate before every tool call; it sends the original user request plus the proposed tool name/args to the configured small model and denies calls that are unsafe or do not match the original intent. `high` requires `MINICLAW_SMALL_PROVIDER` and fails closed if the policy check cannot produce a valid allow/deny decision.
+
 ---
 
 ## Environment variables — full reference
@@ -545,6 +595,16 @@ Any skill can opt into a user confirmation prompt by setting `requiresConfirmati
 | `MINICLAW_PROVIDER` | `anthropic` \| `openai` \| `gemini`. | `anthropic` |
 | `MINICLAW_MODEL` | Override the per-provider default model name. | provider default |
 | `MINICLAW_BASE_URL` | OpenAI-compatible endpoint (Ollama, LM Studio, …). OpenAI provider only. | OpenAI's URL |
+| `MINICLAW_SMALL_PROVIDER` | Optional small-task provider for compaction, dreaming, wiki maintenance, and high-security tool gating. | — |
+| `MINICLAW_SMALL_MODEL` | Override the small provider's default model. | provider default |
+| `MINICLAW_SMALL_API_KEY` | Explicit API key for the small provider. | provider key env |
+| `MINICLAW_SMALL_API_KEY_VAR` | Env var name to read for the small provider's API key. | provider default |
+| `MINICLAW_SMALL_BASE_URL` | OpenAI-compatible endpoint for the small provider. | `MINICLAW_BASE_URL` for OpenAI |
+| `MINICLAW_SECURITY_MODE` | `off` \| `medium` \| `high`. High uses the small LLM to approve every tool call against the original user request. | `off` |
+| `MINICLAW_WIKI_BROWSER` | `on` or `off`. Starts the local token-authenticated wiki browser for long-running SQLite sessions. | `on` |
+| `MINICLAW_WIKI_BROWSER_HOST` | Host/interface for the wiki browser. Keep this loopback unless you provide network-level controls. | `127.0.0.1` |
+| `MINICLAW_WIKI_BROWSER_PORT` | Port for the wiki browser. `0` asks the OS for a random available port. | `0` |
+| `MINICLAW_WIKI_BROWSER_TOKEN` | Optional fixed token for the wiki browser. If unset, a random token is generated each run. | random |
 | `MINICLAW_HOME` | Data directory for SQLite, daemon socket, PID file, daemon logs. | `~/.miniclaw` |
 | `MINICLAW_WORKSPACE` | Filesystem sandbox root for `read_file`, `list_directory`, `write_file`, `apply_patch`, `shell`, `browser_screenshot`. Also where `AGENTS.md`/`TOOLS.md` are looked up. | `process.cwd()` |
 | `MINICLAW_SOCKET` | Override the daemon's Unix socket path. | `$MINICLAW_HOME/miniclaw.sock` |

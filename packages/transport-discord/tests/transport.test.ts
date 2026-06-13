@@ -113,6 +113,49 @@ describe("DiscordTransport", () => {
     expect(last).toBe("echo:what's 2+2");
   });
 
+  it("sends a typing indicator while an allowed DM is processing", async () => {
+    let releaseTurn!: () => void;
+    let startedTurn!: () => void;
+    const started = new Promise<void>((resolve) => { startedTurn = resolve; });
+    const release = new Promise<void>((resolve) => { releaseTurn = resolve; });
+    gateway = new Gateway({
+      sessions: store,
+      conversations: store,
+      agentFor: () => ({
+        async runTurn(userMsg: string) {
+          startedTurn();
+          await release;
+          return { toolCalls: [], finalText: `echo:${userMsg}` };
+        },
+      } as unknown as Agent),
+    });
+    fake = fakeClient();
+    transport = new DiscordTransport({
+      gateway,
+      allowlist: store,
+      pairings: store,
+      token: "x",
+      factory: fake.factory,
+      typingIntervalMs: 10,
+    });
+    await transport.start();
+    store.allowChannel("discord:dm:u1");
+    let typingCalls = 0;
+
+    const delivered = fake.deliver({
+      userId: "u1",
+      userName: "alice",
+      text: "slow",
+      sendTyping: async () => { typingCalls++; },
+    });
+    await started;
+
+    expect(typingCalls).toBeGreaterThan(0);
+    releaseTurn();
+    await delivered;
+    expect(fake.sent[fake.sent.length - 1]).toEqual({ userId: "u1", text: "echo:slow" });
+  });
+
   it("sendToChannel sends proactive messages to Discord DM channels", async () => {
     await expect(transport.sendToChannel("discord:dm:u1", "take out the trash")).resolves.toBe(true);
     expect(fake.sent[fake.sent.length - 1]).toEqual({

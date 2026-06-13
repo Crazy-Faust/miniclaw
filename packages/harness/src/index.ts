@@ -3,6 +3,7 @@ export type { IOAdapter } from "./io.ts";
 export {
   clearCommand,
   compactCommand,
+  dreamCommand,
   exitCommand,
   helpCommand,
   memoriesCommand,
@@ -12,6 +13,7 @@ export {
   skillsCommand,
   statusCommand,
   usageCommand,
+  wikiMaintainCommand,
   type MetaCommand,
   type MetaCommandContext,
 } from "./meta.ts";

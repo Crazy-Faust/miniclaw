@@ -318,7 +318,7 @@
         <ul>
           <li>Memory contract: <code>add</code>, <code>search</code>, <code>listRecent</code>.</li>
           <li>SQLite stores memories with FTS5 search by rank.</li>
-          <li>Each turn injects up to 5 memory hits and last 12 messages.</li>
+          <li>Each turn injects up to 5 memory index entries and last 12 messages.</li>
           <li>Messages are stored by <code>conv_id</code>; daemon channels get isolated sessions.</li>
           <li>In-memory and vector stores exist; vector search is still experimental.</li>
           <li>Compaction exists, but default behavior is windowing.</li>

@@ -31,6 +31,10 @@ env vars:
   MINICLAW_PROVIDER=anthropic|openai|gemini
   MINICLAW_MODEL                        provider-specific model name
   MINICLAW_BASE_URL                     OpenAI-compatible endpoint
+  MINICLAW_SMALL_PROVIDER               optional small-task provider
+  MINICLAW_SMALL_MODEL                  optional small-task model
+  MINICLAW_SECURITY_MODE=off|medium|high
+  MINICLAW_WIKI_BROWSER=on|off          local token-authenticated wiki browser
   MINICLAW_HOME                         data dir (default: ~/.miniclaw)
   MINICLAW_SOCKET                       daemon socket (default: \$HOME/miniclaw.sock)
   MINICLAW_DISCORD_TOKEN                if set, the daemon starts the Discord transport

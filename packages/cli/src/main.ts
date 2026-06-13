@@ -4,11 +4,10 @@
 // the CLI from packages/cli/.
 import "./env.ts";
 
-import { homedir } from "node:os";
-
 import { Agent } from "@miniclaw/agent";
 import { StatelessContextManager } from "@miniclaw/context-stateless";
-import { WindowedContextManager } from "@miniclaw/context-windowed";
+import { CompactingContextManager } from "@miniclaw/context-windowed";
+import { createDreamSkill, Dreamer, formatDreamRunResult } from "@miniclaw/dreaming";
 import type {
   AuditSink,
   ContextManager,
@@ -22,14 +21,24 @@ import {
   Harness,
   type IOAdapter,
   memoriesCommand,
+  dreamCommand,
   resetCommand,
   skillsCommand,
   statusCommand,
   usageCommand,
+  wikiMaintainCommand,
   type SessionControls,
 } from "@miniclaw/harness";
 import { InMemoryStore } from "@miniclaw/memory-inmemory";
 import { SqliteStore } from "@miniclaw/memory-sqlite";
+import {
+  createWikiSkills,
+  formatMaintenanceResult,
+  MemoryWikiMaintainer,
+  MemoryWikiWorker,
+  startWikiBrowserServer,
+  type WikiBrowserHandle,
+} from "@miniclaw/memory-wiki";
 import { createSessionsSkills } from "@miniclaw/skills-sessions";
 import { createCronSkills } from "@miniclaw/skills-cron";
 import { createCanvasSkills, CanvasStore } from "@miniclaw/skills-canvas";
@@ -38,7 +47,9 @@ import { Gateway } from "@miniclaw/gateway";
 import { parseArgs, USAGE, type Mode } from "./argv.ts";
 import { loadConfig, type Config } from "./config.ts";
 import { createOneShotIO, createReadlineIO } from "./io.ts";
-import { buildLLM } from "./llm.ts";
+import { buildLLM, buildSmallLLM } from "./llm.ts";
+import { trackLLMUsage } from "./llm-usage.ts";
+import { buildToolGuard, describeSecurityMode } from "./security.ts";
 import { makeSkillCommand } from "./make-skill/index.ts";
 import { buildRegistry } from "./skills.ts";
 import { runDaemon } from "./daemon.ts";
@@ -94,17 +105,52 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
 
   const store: MemoryStore & ConversationStore & AuditSink & SessionStore & CronStore & WithUsage & Closeable =
     ephemeral ? new InMemoryStore() : new SqliteStore(config.dbPath);
+  const wikiStore = store instanceof SqliteStore ? store : null;
 
   const convId = store.newConversation();
   const registry = buildRegistry();
-  const llm = buildLLM(config);
+  const llm = trackLLMUsage(
+    buildLLM(config),
+    wikiStore ?? undefined,
+    { provider: config.provider, model: config.model, role: "primary" },
+  );
+  const builtSmallLLM = buildSmallLLM(config);
+  const smallLLM = builtSmallLLM && config.smallLLM
+    ? trackLLMUsage(
+        builtSmallLLM,
+        wikiStore ?? undefined,
+        { provider: config.smallLLM.provider, model: config.smallLLM.model, role: "small" },
+      )
+    : undefined;
+  const toolGuard = buildToolGuard(config, smallLLM);
+  const summarizerLLM = smallLLM ?? llm;
+  const wikiMaintainer = wikiStore
+    ? new MemoryWikiMaintainer({
+        llm: smallLLM ?? llm,
+        queue: wikiStore,
+        wiki: wikiStore,
+      })
+    : null;
+  const wikiWorker = wikiMaintainer && smallLLM && !oneShot
+    ? new MemoryWikiWorker({ maintainer: wikiMaintainer })
+    : null;
+  const wikiBrowser: WikiBrowserHandle | null = wikiStore && config.wikiBrowser.enabled && !oneShot
+    ? await startWikiBrowserServer({
+        wiki: wikiStore,
+        host: config.wikiBrowser.host,
+        port: config.wikiBrowser.port,
+        token: config.wikiBrowser.token,
+      })
+    : null;
 
   const context: ContextManager = stateless
     ? new StatelessContextManager()
-    : new WindowedContextManager({
+    : new CompactingContextManager({
         memory: store,
         conversations: store,
         conversationId: convId,
+        summarizer: summarizerLLM,
+        knowledge: wikiStore ?? undefined,
         workspaceRoot: config.workspaceRoot,
       });
 
@@ -121,7 +167,9 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
     audit: store,
     dbPath: ephemeral ? ":memory:" : config.dbPath,
     channel: "cli",
+    conversationId: convId,
     workspaceRoot: config.workspaceRoot,
+    toolGuard,
     confirmTool: io.confirm
       ? async (call, skill) => {
           const argStr = JSON.stringify(call.args);
@@ -150,26 +198,54 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
   for (const sk of createCanvasSkills({ store: canvasStore })) {
     registry.register(sk);
   }
+  if (wikiStore) {
+    for (const sk of createWikiSkills({ wiki: wikiStore, maintainer: wikiMaintainer ?? undefined })) {
+      registry.register(sk);
+    }
+  }
+  const dreamer = new Dreamer({
+    llm: summarizerLLM,
+    conversations: store,
+    memory: store,
+    audit: store,
+    registry,
+    dbPath: ephemeral ? ":memory:" : config.dbPath,
+    channel: "cli",
+    workspaceRoot: config.workspaceRoot,
+    toolGuard,
+  });
+  registry.register(createDreamSkill(dreamer));
 
   const controls: SessionControls = {
     status: () => ({
       provider: config.provider,
       model: config.model,
+      smallModel: config.smallLLM
+        ? `${config.smallLLM.provider}/${config.smallLLM.model}`
+        : `(primary ${config.provider}/${config.model})`,
       store: ephemeral ? "(ephemeral)" : config.dbPath,
       conversation: String(convId),
       workspace: config.workspaceRoot,
+      security: describeSecurityMode(config),
+      wikiBrowser: wikiBrowser?.url ?? "(disabled)",
       skills: String(registry.list().length),
     }),
+    dream: async () => {
+      const result = await dreamer.run();
+      return formatDreamRunResult(result);
+    },
+    wikiMaintain: async () => {
+      if (!wikiMaintainer) return "(wiki maintenance is only available with SQLite storage)";
+      return formatMaintenanceResult(await wikiMaintainer.drain());
+    },
     usage: () => store.auditUsage(),
   };
 
   const banner = oneShotIO
     ? undefined
     : (
-        `miniclaw — provider ${config.provider}, model ${config.model}, ` +
-        `${ephemeral ? "ephemeral store" : `db ${config.dbPath}`}, ` +
-        `${stateless ? "stateless context" : "windowed context"}\n` +
-        `skills: ${registry.list().map((s) => s.name).join(", ")}\n` +
+        `${stateless ? "stateless context" : "compacting context"}\n` +
+        (wikiBrowser ? `wiki browser: ${wikiBrowser.url}\n` : "") +
         `type /help for slash commands, /exit to quit\n`
       );
 
@@ -179,6 +255,8 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
         exitCommand(),
         skillsCommand(registry),
         memoriesCommand(store),
+        dreamCommand(controls),
+        wikiMaintainCommand(controls),
         statusCommand(controls),
         resetCommand(controls),
         usageCommand(controls),
@@ -188,8 +266,11 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
   const harness = new Harness({ agent, io, banner, metaCommands });
 
   try {
+    wikiWorker?.start();
     await harness.run();
   } finally {
+    wikiWorker?.stop();
+    await wikiBrowser?.stop();
     store.close();
   }
 }

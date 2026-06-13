@@ -73,6 +73,9 @@ importers:
       '@miniclaw/core':
         specifier: workspace:*
         version: link:../core
+      '@miniclaw/dreaming':
+        specifier: workspace:*
+        version: link:../dreaming
       '@miniclaw/gateway':
         specifier: workspace:*
         version: link:../gateway
@@ -94,6 +97,9 @@ importers:
       '@miniclaw/memory-sqlite':
         specifier: workspace:*
         version: link:../memory-sqlite
+      '@miniclaw/memory-wiki':
+        specifier: workspace:*
+        version: link:../memory-wiki
       '@miniclaw/skills-canvas':
         specifier: workspace:*
         version: link:../skills-canvas
@@ -152,6 +158,25 @@ importers:
       zod-to-json-schema:
         specifier: ^3.23.5
         version: 3.25.2(zod@3.25.76)
+
+  packages/dreaming:
+    dependencies:
+      '@miniclaw/agent':
+        specifier: workspace:*
+        version: link:../agent
+      '@miniclaw/core':
+        specifier: workspace:*
+        version: link:../core
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@miniclaw/memory-inmemory':
+        specifier: workspace:*
+        version: link:../memory-inmemory
+      '@miniclaw/skills-memory':
+        specifier: workspace:*
+        version: link:../skills-memory
 
   packages/gateway:
     dependencies:
@@ -251,6 +276,19 @@ importers:
       '@miniclaw/core':
         specifier: workspace:*
         version: link:../core
+
+  packages/memory-wiki:
+    dependencies:
+      '@miniclaw/core':
+        specifier: workspace:*
+        version: link:../core
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@miniclaw/memory-inmemory':
+        specifier: workspace:*
+        version: link:../memory-inmemory
 
   packages/skills-browser:
     dependencies:

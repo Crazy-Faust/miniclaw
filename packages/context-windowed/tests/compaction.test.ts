@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   AssistantTurn,
+  KnowledgeSearchResult,
+  KnowledgeStore,
   LLMProvider,
   MemoryRecord,
   MemoryStore,
@@ -23,6 +25,20 @@ class ScriptedSummarizer implements LLMProvider {
     this.calls.push(opts);
     return { kind: "final", text: this.text };
   }
+}
+
+class FakeKnowledge implements KnowledgeStore {
+  constructor(private readonly hits: KnowledgeSearchResult[] = [
+    {
+      source: "wiki" as const,
+      path: "personal/preferences.md",
+      folder: "personal",
+      title: "Preferences",
+      content: "Synthesized preference page",
+      tags: ["preferences"],
+    },
+  ]) {}
+  searchKnowledge() { return this.hits; }
 }
 
 describe("approxTokens", () => {
@@ -57,6 +73,55 @@ describe("CompactingContextManager.prepareAsync — under budget", () => {
     // 6 historical messages + 1 new user = 7.
     expect(messages).toHaveLength(7);
   });
+
+  it("injects wiki retrieval as index entries when KnowledgeStore is available", async () => {
+    const conversations = new InMemoryStore();
+    const convId = conversations.newConversation();
+    const mgr = new CompactingContextManager({
+      memory: new NoOpMemory(),
+      conversations,
+      conversationId: convId,
+      summarizer: new ScriptedSummarizer("unused"),
+      knowledge: new FakeKnowledge(),
+    });
+
+    const { system } = await mgr.prepareAsync("editor?");
+
+    expect(system).toContain("Relevant long-term memory index");
+    expect(system).toContain("personal/preferences.md");
+    expect(system).toContain("use wiki_read with this path");
+    expect(system).not.toContain("Synthesized preference page");
+    expect(system).not.toContain("Relevant raw memory source index");
+  });
+
+  it("labels raw memory hits as fallback index entries when no wiki page matches yet", async () => {
+    const conversations = new InMemoryStore();
+    const convId = conversations.newConversation();
+    const mgr = new CompactingContextManager({
+      memory: new NoOpMemory(),
+      conversations,
+      conversationId: convId,
+      summarizer: new ScriptedSummarizer("unused"),
+      knowledge: new FakeKnowledge([
+        {
+          source: "memory",
+          id: 1,
+          folder: "personal",
+          title: "Raw source memory #1",
+          content: "user prefers helix",
+          tags: ["editor"],
+        },
+      ]),
+    });
+
+    const { system } = await mgr.prepareAsync("editor?");
+
+    expect(system).toContain("Relevant raw memory source index");
+    expect(system).toContain("raw_source id=1");
+    expect(system).toContain('title="Raw source memory #1"');
+    expect(system).toContain("use search_memory with a targeted query");
+    expect(system).not.toContain("user prefers helix");
+  });
 });
 
 describe("CompactingContextManager.prepareAsync — over budget", () => {
@@ -80,7 +145,7 @@ describe("CompactingContextManager.prepareAsync — over budget", () => {
       conversations,
       conversationId: convId,
       summarizer,
-      tokenBudget: 500,
+      tokenBudget: 2_000,
       keepRecent: 4,
     });
 
@@ -134,6 +199,59 @@ describe("CompactingContextManager.prepareAsync — over budget", () => {
     conversations.logTurn(convId, "assistant", "assistant msg 20 " + "z".repeat(400));
     await mgr.prepareAsync("second");
     expect(summarizer.calls).toHaveLength(2);
+  });
+
+  it("chunks very large histories before asking the summarizer", async () => {
+    const conversations = new InMemoryStore();
+    const convId = conversations.newConversation();
+    for (let i = 0; i < 30; i++) {
+      conversations.logTurn(convId, "user", `huge user ${i} ` + "x".repeat(1_000));
+      conversations.logTurn(convId, "assistant", `huge assistant ${i} ` + "y".repeat(1_000));
+    }
+    const summarizer = new ScriptedSummarizer("chunk summary");
+    const mgr = new CompactingContextManager({
+      memory: new NoOpMemory(),
+      conversations,
+      conversationId: convId,
+      summarizer,
+      tokenBudget: 500,
+      keepRecent: 2,
+      summarizerInputBudget: 600,
+      summaryMessageMaxChars: 1_200,
+    });
+
+    const { system, messages } = await mgr.prepareAsync("status?");
+
+    expect(system).toContain("Summary of earlier conversation");
+    expect(messages.at(-1)).toEqual({ role: "user", content: "status?" });
+    expect(summarizer.calls.length).toBeGreaterThan(1);
+    for (const call of summarizer.calls) {
+      const content = (call.messages[0] as { role: "user"; content: string }).content;
+      expect(approxTokens(content)).toBeLessThanOrEqual(650);
+    }
+  });
+
+  it("drops older recent messages if even the recent window exceeds budget", async () => {
+    const conversations = new InMemoryStore();
+    const convId = conversations.newConversation();
+    for (let i = 0; i < 4; i++) {
+      conversations.logTurn(convId, "user", `recent user ${i} ` + "u".repeat(2_000));
+      conversations.logTurn(convId, "assistant", `recent assistant ${i} ` + "a".repeat(2_000));
+    }
+    const mgr = new CompactingContextManager({
+      memory: new NoOpMemory(),
+      conversations,
+      conversationId: convId,
+      summarizer: new ScriptedSummarizer("summary"),
+      tokenBudget: 120,
+      keepRecent: 4,
+      recentMessageMaxChars: 200,
+    });
+
+    const { messages } = await mgr.prepareAsync("next");
+
+    expect(messages.at(-1)).toEqual({ role: "user", content: "next" });
+    expect(messages.length).toBeLessThan(5);
   });
 
   it("sync prepare() does NOT summarize (escape hatch when caller can't await)", () => {

@@ -1,3 +1,4 @@
+import { currentLLMUsageContext, withLLMUsageContext } from "@miniclaw/core";
 import type {
   AssistantTurn,
   AuditSink,
@@ -36,6 +37,10 @@ export interface AgentDeps {
   dbPath: string;
   /** Logical session/channel id threaded to skills via SkillContext. */
   channel?: string;
+  /** Session id for usage attribution. */
+  sessionId?: string;
+  /** Conversation id for usage attribution. */
+  conversationId?: number;
   /** Workspace sandbox root threaded to every skill via SkillContext. */
   workspaceRoot?: string;
   /**
@@ -49,6 +54,11 @@ export interface AgentDeps {
   ) => Promise<boolean>;
   /** Optional retry policy applied around LLM provider calls. */
   retry?: AgentRetryOptions;
+  /**
+   * Optional process-wide tool gate. Unlike per-turn hooks, this receives the
+   * original user message and runs before every actual skill execution.
+   */
+  toolGuard?: ToolGuard;
 }
 
 export interface PreToolUseDecision {
@@ -64,6 +74,16 @@ export interface PreToolUseDecision {
    */
   modifiedArgs?: unknown;
 }
+
+export interface ToolGuardInput {
+  userMessage: string;
+  call: { name: string; args: unknown };
+  skill: { name: string; description: string };
+}
+
+export type ToolGuard =
+  (input: ToolGuardInput) =>
+    Promise<PreToolUseDecision | void> | PreToolUseDecision | void;
 
 export interface AgentTurnHooks {
   /** Fires before each tool call dispatches. */
@@ -113,8 +133,25 @@ export class Agent {
   constructor(private readonly deps: AgentDeps) {}
 
   async runTurn(userMsg: string, hooks?: AgentTurnHooks): Promise<TurnTrace> {
+    const existingContext = currentLLMUsageContext();
+    return await withLLMUsageContext(
+      {
+        taskKind: existingContext?.taskKind ?? inferTaskKind(this.deps.channel),
+        taskName: existingContext?.taskName ?? inferTaskName(this.deps.channel),
+        channel: this.deps.channel,
+        sessionId: this.deps.sessionId,
+        conversationId: this.deps.conversationId,
+        component: existingContext?.component ?? "agent",
+      },
+      async () => this.runTurnInner(userMsg, hooks),
+    );
+  }
+
+  private async runTurnInner(userMsg: string, hooks?: AgentTurnHooks): Promise<TurnTrace> {
     this.deps.context.recordUser(userMsg);
-    const { system, messages } = this.deps.context.prepare(userMsg);
+    const { system, messages } = this.deps.context.prepareAsync
+      ? await this.deps.context.prepareAsync(userMsg)
+      : this.deps.context.prepare(userMsg);
     const skillCtx: SkillContext = {
       memory: this.deps.memory,
       audit: this.deps.audit,
@@ -148,7 +185,7 @@ export class Agent {
       const results: ToolResultPart[] = [];
       for (const call of turn.toolCalls) {
         hooks?.onTool?.(call.name, call.args);
-        const { content, ok } = await this.executeOne(call, skillCtx, trace, hooks);
+        const { content, ok } = await this.executeOne(call, userMsg, skillCtx, trace, hooks);
         results.push({ toolCallId: call.id, toolName: call.name, content, isError: !ok });
       }
       // Persist what the model actually emitted — the real text, not a
@@ -197,18 +234,18 @@ export class Agent {
 
   private async executeOne(
     call: ToolCall,
+    userMsg: string,
     skillCtx: SkillContext,
     trace: TurnTrace,
     hooks?: AgentTurnHooks,
   ): Promise<{ content: string; ok: boolean }> {
-    const argsJson = safeStringify(call.args);
     const finish = async (
       skillName: string,
       argsForTrace: unknown,
       content: string,
       ok: boolean,
     ): Promise<{ content: string; ok: boolean }> => {
-      this.deps.audit.logToolCall(skillName, argsJson, summarize(content), ok);
+      this.deps.audit.logToolCall(skillName, safeStringify(argsForTrace), summarize(content), ok);
       trace.toolCalls.push({ name: skillName, args: argsForTrace, ok, output: content });
       // Post-tool hook is observational — failures here must not poison
       // the agent loop, so swallow throws and surface them via console.
@@ -248,6 +285,27 @@ export class Agent {
       }
     }
 
+    if (this.deps.toolGuard) {
+      let decision: PreToolUseDecision | void;
+      try {
+        decision = await this.deps.toolGuard({
+          userMessage: userMsg,
+          call: { name: call.name, args: proposedArgs },
+          skill: { name: skill.name, description: skill.description },
+        });
+      } catch (err) {
+        const reason = `tool call denied by security guard: ${(err as Error).message ?? String(err)}`;
+        return await finish(skill.name, proposedArgs, reason, false);
+      }
+      if (decision && decision.allow === false) {
+        const reason = decision.reason ?? "tool call denied by security guard";
+        return await finish(skill.name, proposedArgs, reason, false);
+      }
+      if (decision && decision.modifiedArgs !== undefined) {
+        proposedArgs = decision.modifiedArgs;
+      }
+    }
+
     const parsed = skill.parameters.safeParse(proposedArgs);
     if (!parsed.success) {
       return await finish(
@@ -276,7 +334,7 @@ export class Agent {
       return await finish(skill.name, parsed.data, res.output, res.ok);
     } catch (err) {
       const msg = `tool threw: ${(err as Error).message ?? String(err)}`;
-      return await finish(skill.name, call.args, msg, false);
+      return await finish(skill.name, parsed.data, msg, false);
     }
   }
 }
@@ -287,6 +345,19 @@ function safeStringify(v: unknown): string {
 
 function summarize(s: string, max = 500): string {
   return s.length <= max ? s : s.slice(0, max) + `... (+${s.length - max} bytes)`;
+}
+
+function inferTaskKind(channel: string | undefined): string {
+  return channel?.startsWith("cron:") ? "cron" : "user_message";
+}
+
+function inferTaskName(channel: string | undefined): string {
+  if (!channel) return "direct user message";
+  const cron = /^cron:(\d+):/.exec(channel);
+  if (cron?.[1]) return `cron #${cron[1]}`;
+  if (channel.startsWith("discord:dm:")) return "discord direct message";
+  if (channel === "cli") return "cli message";
+  return channel;
 }
 
 export function defaultIsTransient(err: unknown): boolean {

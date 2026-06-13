@@ -101,6 +101,46 @@ export function compactCommand(controls: SessionControls): MetaCommand {
   };
 }
 
+export function dreamCommand(controls: SessionControls): MetaCommand {
+  return {
+    name: "/dream",
+    description: "Review recent conversations and extract useful memories/tasks.",
+    matches: (line) => line === "/dream",
+    async run(_line, ctx) {
+      if (!controls.dream) {
+        ctx.io.write("  (this session doesn't support /dream)\n");
+        return;
+      }
+      try {
+        const result = await controls.dream();
+        ctx.io.write(indentBlock(result) + "\n");
+      } catch (err) {
+        ctx.io.write(`  dream failed: ${(err as Error).message}\n`);
+      }
+    },
+  };
+}
+
+export function wikiMaintainCommand(controls: SessionControls): MetaCommand {
+  return {
+    name: "/wiki_maintain",
+    description: "Drain queued memory-to-wiki maintenance jobs.",
+    matches: (line) => line === "/wiki_maintain",
+    async run(_line, ctx) {
+      if (!controls.wikiMaintain) {
+        ctx.io.write("  (this session doesn't support /wiki_maintain)\n");
+        return;
+      }
+      try {
+        const result = await controls.wikiMaintain();
+        ctx.io.write(indentBlock(result) + "\n");
+      } catch (err) {
+        ctx.io.write(`  wiki maintenance failed: ${(err as Error).message}\n`);
+      }
+    },
+  };
+}
+
 export function modelCommand(controls: SessionControls): MetaCommand {
   return {
     name: "/model",
@@ -232,6 +272,13 @@ export function usageCommand(controls: SessionControls): MetaCommand {
       }
     },
   };
+}
+
+function indentBlock(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => `  ${line}`)
+    .join("\n");
 }
 
 export function memoriesCommand(memory: MemoryStore): MetaCommand {

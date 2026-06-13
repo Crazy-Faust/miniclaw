@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { MemoryRecord, MemoryStore, SkillContext } from "@miniclaw/core";
+import type {
+  KnowledgeSearchOptions,
+  KnowledgeSearchResult,
+  KnowledgeStore,
+  MemoryRecord,
+  MemoryStore,
+  SkillContext,
+} from "@miniclaw/core";
 import { searchMemorySkill, writeMemorySkill } from "../src/index.ts";
 
 // Hand-rolled in-memory MemoryStore so the test asserts only what the skill
@@ -8,19 +15,32 @@ class FakeMemoryStore implements MemoryStore {
   records: MemoryRecord[] = [];
   private seq = 0;
 
-  add(kind: string, content: string, tags: string[] = []): number {
+  add(kind: string, content: string, tags: string[] = [], opts: { folder?: string } = {}): number {
     const id = ++this.seq;
-    this.records.push({ id, kind, content, tags, createdAt: Date.now() });
+    this.records.push({ id, kind, content, tags, folder: opts.folder ?? "inbox", createdAt: Date.now() });
     return id;
   }
-  search(query: string, limit = 5): MemoryRecord[] {
+  search(query: string, limit = 5, opts: { folder?: string } = {}): MemoryRecord[] {
     const q = query.toLowerCase();
     return this.records
       .filter((r) => r.content.toLowerCase().includes(q))
+      .filter((r) => !opts.folder || r.folder === opts.folder)
       .slice(0, limit);
   }
   listRecent(limit: number): MemoryRecord[] {
     return [...this.records].reverse().slice(0, limit);
+  }
+}
+
+class FakeKnowledgeMemoryStore extends FakeMemoryStore implements KnowledgeStore {
+  calls: KnowledgeSearchOptions[] = [];
+  constructor(private readonly knowledgeHits: KnowledgeSearchResult[]) {
+    super();
+  }
+
+  searchKnowledge(_query: string, _limit = 5, opts: KnowledgeSearchOptions = {}): KnowledgeSearchResult[] {
+    this.calls.push(opts);
+    return this.knowledgeHits;
   }
 }
 
@@ -40,13 +60,35 @@ describe("writeMemorySkill", () => {
       makeCtx(mem),
     );
     expect(res.ok).toBe(true);
-    expect(res.output).toMatch(/stored memory #1/);
+    expect(res.output).toMatch(/stored memory source #1/);
     expect(mem.records).toHaveLength(1);
     expect(mem.records[0]).toMatchObject({
       kind: "preference",
       content: "user likes helix",
       tags: ["editor"],
+      folder: "inbox",
     });
+  });
+
+  it("passes an optional folder through to the MemoryStore", async () => {
+    const mem = new FakeMemoryStore();
+    const res = await writeMemorySkill.execute(
+      { content: "paper note", kind: "note", tags: [], folder: "research/papers" },
+      makeCtx(mem),
+    );
+    expect(res.ok).toBe(true);
+    expect(res.output).toMatch(/folder=research\/papers/);
+    expect(mem.records[0]).toMatchObject({ folder: "research/papers" });
+  });
+
+  it("rejects unsafe folder paths", async () => {
+    const mem = new FakeMemoryStore();
+    const res = await writeMemorySkill.execute(
+      { content: "x", kind: "note", tags: [], folder: "../escape" },
+      makeCtx(mem),
+    );
+    expect(res.ok).toBe(false);
+    expect(res.output).toMatch(/invalid folder/);
   });
 
   it("includes tags in the confirmation message", async () => {
@@ -70,8 +112,45 @@ describe("searchMemorySkill", () => {
       makeCtx(mem),
     );
     expect(res.ok).toBe(true);
-    expect(res.output).toMatch(/#1 \[fact editor\] user prefers helix editor/);
+    expect(res.output).toMatch(/#1 \[fact folder=inbox status=active editor\] user prefers helix editor/);
     expect(res.output).not.toContain("oat milk");
+  });
+
+  it("uses wiki-backed knowledge search when the store supports it", async () => {
+    const mem = new FakeKnowledgeMemoryStore([
+      {
+        source: "wiki",
+        path: "personal/preferences.md",
+        folder: "personal",
+        title: "Preferences",
+        content: "user prefers helix editor",
+        tags: ["editor"],
+      },
+    ]);
+
+    const res = await searchMemorySkill.execute(
+      { query: "helix", limit: 5, folder: "personal" },
+      makeCtx(mem),
+    );
+
+    expect(res.ok).toBe(true);
+    expect(mem.calls).toEqual([{ folder: "personal" }]);
+    expect(res.output).toContain("personal/preferences.md [wiki folder=personal tags=editor] Preferences");
+    expect(res.output).toContain("user prefers helix editor");
+  });
+
+  it("can restrict search to a folder", async () => {
+    const mem = new FakeMemoryStore();
+    mem.add("fact", "alpha note", [], { folder: "research" });
+    mem.add("fact", "alpha note", [], { folder: "personal" });
+
+    const res = await searchMemorySkill.execute(
+      { query: "alpha", limit: 5, folder: "personal" },
+      makeCtx(mem),
+    );
+
+    expect(res.output).toContain("folder=personal");
+    expect(res.output).not.toContain("folder=research");
   });
 
   it("returns a friendly message when nothing matches", async () => {

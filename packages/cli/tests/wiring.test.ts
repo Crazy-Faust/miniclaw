@@ -3,7 +3,8 @@ import { AnthropicProvider } from "@miniclaw/llm-anthropic";
 import { GeminiProvider } from "@miniclaw/llm-gemini";
 import { OpenAIProvider } from "@miniclaw/llm-openai";
 
-import { buildLLM } from "../src/llm.ts";
+import { buildLLM, buildSmallLLM } from "../src/llm.ts";
+import { buildToolGuard, describeSecurityMode } from "../src/security.ts";
 import { buildRegistry } from "../src/skills.ts";
 import type { Config } from "../src/config.ts";
 
@@ -12,7 +13,7 @@ import type { Config } from "../src/config.ts";
 // booting the REPL.
 
 describe("buildRegistry", () => {
-  it("registers every always-on built-in skill (no provider key set)", () => {
+  it("registers every dependency-free built-in skill (no provider key set)", () => {
     const r = buildRegistry({});
     const names = r.list().map((s) => s.name).sort();
     expect(names).toEqual([
@@ -62,6 +63,8 @@ function fakeConfig(over: Partial<Config>): Config {
     apiKey: "sk-test",
     model: "test-model",
     workspaceRoot: "/tmp/x",
+    securityMode: "off",
+    wikiBrowser: { enabled: true, host: "127.0.0.1", port: 0 },
     ...over,
   };
 }
@@ -82,5 +85,57 @@ describe("buildLLM", () => {
   it("returns a GeminiProvider for provider=gemini", () => {
     const llm = buildLLM(fakeConfig({ provider: "gemini" }));
     expect(llm).toBeInstanceOf(GeminiProvider);
+  });
+
+  it("returns undefined when no small LLM is configured", () => {
+    expect(buildSmallLLM(fakeConfig({}))).toBeUndefined();
+  });
+
+  it("builds the configured small LLM with the same provider interface", () => {
+    const llm = buildSmallLLM(
+      fakeConfig({
+        smallLLM: {
+          provider: "openai",
+          apiKey: "sk-small",
+          model: "small-model",
+          baseURL: "http://localhost:11434/v1",
+        },
+      }),
+    );
+    expect(llm).toBeInstanceOf(OpenAIProvider);
+  });
+});
+
+describe("buildToolGuard", () => {
+  it("does not build an LLM guard for off or medium security", () => {
+    expect(buildToolGuard(fakeConfig({ securityMode: "off" }), undefined)).toBeUndefined();
+    expect(buildToolGuard(fakeConfig({ securityMode: "medium" }), undefined)).toBeUndefined();
+    expect(describeSecurityMode(fakeConfig({ securityMode: "off" }))).toBe("off");
+    expect(describeSecurityMode(fakeConfig({ securityMode: "medium" }))).toBe("medium");
+  });
+
+  it("requires a small LLM in high security mode", () => {
+    expect(() => buildToolGuard(fakeConfig({ securityMode: "high" }), undefined)).toThrow(
+      /MINICLAW_SMALL_PROVIDER/,
+    );
+  });
+
+  it("builds a high-security guard from the small LLM", async () => {
+    const small = {
+      async chat() {
+        return { kind: "final" as const, text: '{ "allowed": true, "reason": "ok" }' };
+      },
+    };
+    const guard = buildToolGuard(fakeConfig({ securityMode: "high" }), small);
+    await expect(
+      guard!({
+        userMessage: "list files",
+        call: { name: "list_directory", args: { path: "." } },
+        skill: { name: "list_directory", description: "list directory" },
+      }),
+    ).resolves.toEqual({ allow: true });
+    expect(describeSecurityMode(fakeConfig({ securityMode: "high" }))).toBe(
+      "high (small-LLM tool gate)",
+    );
   });
 });

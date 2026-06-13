@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 // LLM provider contract. Implementations live in their own package
 // (e.g. @miniclaw/llm-anthropic) and import only from here.
 
@@ -35,6 +37,31 @@ export interface LLMUsage {
   cacheWriteTokens?: number;
 }
 
+export interface LLMUsageRecord {
+  provider: string;
+  model: string;
+  /** Logical role in miniclaw, e.g. primary or small. */
+  role: string;
+  /** Result kind for the call, e.g. final, tool_use, or error. */
+  kind: string;
+  context?: LLMUsageContext;
+  usage?: LLMUsage;
+  ts?: number;
+}
+
+export interface LLMUsageContext {
+  /** User-facing purpose bucket, e.g. user_message, cron, compaction. */
+  taskKind?: string;
+  /** Optional task label, e.g. cron #12 or security gate shell. */
+  taskName?: string;
+  /** Transport/session channel, e.g. cli, discord:dm:..., cron:12:... */
+  channel?: string;
+  sessionId?: string;
+  conversationId?: number;
+  /** Internal component responsible for the call. */
+  component?: string;
+}
+
 export type AssistantTurn =
   | { kind: "final"; text: string; usage?: LLMUsage }
   | { kind: "tool_use"; text: string; toolCalls: ToolCall[]; usage?: LLMUsage };
@@ -58,4 +85,29 @@ export interface LLMProvider {
      */
     onToken?: (delta: string) => void;
   }): Promise<AssistantTurn>;
+}
+
+export interface LLMUsageSink {
+  recordLLMUsage(record: LLMUsageRecord): void;
+}
+
+const llmUsageContextStorage = new AsyncLocalStorage<LLMUsageContext>();
+
+export function currentLLMUsageContext(): LLMUsageContext | undefined {
+  return llmUsageContextStorage.getStore();
+}
+
+export function withLLMUsageContext<T>(
+  context: LLMUsageContext,
+  fn: () => T,
+): T {
+  const merged: LLMUsageContext = { ...(currentLLMUsageContext() ?? {}) };
+  for (const [key, value] of Object.entries(context) as Array<
+    [keyof LLMUsageContext, LLMUsageContext[keyof LLMUsageContext]]
+  >) {
+    if (value !== undefined) {
+      (merged as Record<keyof LLMUsageContext, unknown>)[key] = value;
+    }
+  }
+  return llmUsageContextStorage.run(merged, fn);
 }

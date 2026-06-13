@@ -22,10 +22,12 @@ At the prompt, type each line, hit enter:
 /help
 /skills
 /status
+/dream
+/wiki_maintain
 /exit
 ```
 
-**Expect:** `/help` lists ~10 commands; `/skills` shows 20+ tools (sessions_*, cron_*, canvas_*, write_memory, shell, …); `/status` prints provider/model/db/conversation/workspace/skills count.
+**Expect:** `/help` lists commands including `/dream` and `/wiki_maintain`; `/skills` shows 20+ tools (sessions_*, cron_*, canvas_*, wiki_*, dream, write_memory, shell, …); `/status` prints provider/model/small model/security mode/wiki browser/db/conversation/workspace/skills count.
 
 **Proves:** REPL boots, env loads, registry assembles, meta-commands work.
 
@@ -257,9 +259,9 @@ While attached to a daemon session:
 > /exit
 ```
 
-**Expect:** `/status` shows the live conversation id; `/usage` shows tool-call totals plus a by-skill breakdown (write_memory, search_memory, …) accumulated across earlier tests.
+**Expect:** `/status` shows the live conversation id; `/usage` shows tool-call totals plus a by-skill breakdown (write_memory, search_memory, …) accumulated across earlier tests. Open the wiki browser URL from `/status`; its LLM Usage system page shows token totals by task type, model role, model, channel/job, and recent calls. Actual user messages, cron jobs, compaction, wiki maintenance, dreaming, and tool-security checks should appear as separate buckets when those flows have run. The page is not returned by `wiki_search`, `wiki_read`, `wiki_list`, or automatic memory retrieval.
 
-**Proves:** `SessionControls.status` + `auditUsage` rollup are wired through the meta-commands.
+**Proves:** `SessionControls.status` + `auditUsage` rollup are wired through the meta-commands, and protected user-only LLM usage statistics are persisted separately from LLM-facing wiki pages.
 
 ---
 
@@ -481,7 +483,7 @@ sqlite3 ~/.miniclaw/miniclaw.db "select id, schedule, channel from cron_jobs whe
 
 ---
 
-## I. Edge cases + security (3 tests)
+## I. Edge cases + security (4 tests)
 
 ### I1. Tool output is treated as data, not instructions
 
@@ -548,6 +550,31 @@ Error: OPENAI_API_KEY is not set. Copy .env.example to .env and fill it in (or c
 Exits non-zero.
 
 **Proves:** Config validation runs before anything else; doesn't silently fall back to the default provider.
+
+---
+
+### I4. High security mode gates tool calls with the small LLM
+
+Requires a configured small model:
+
+```bash
+MINICLAW_SECURITY_MODE=high \
+MINICLAW_SMALL_PROVIDER=openai \
+MINICLAW_SMALL_MODEL=gpt-4o-mini \
+pnpm dev
+```
+
+At the prompt:
+
+```
+> list the files in the current directory
+> use sql_query to delete from memories
+> /exit
+```
+
+**Expect:** The first request can proceed after the small model approves the matching `list_directory` call. The second request is denied before `sql_query` executes because the proposed write does not match a safe/read-only operation.
+
+**Proves:** High mode sends the original user request plus proposed tool call to the small LLM before execution and fails closed on unsafe/mismatched calls.
 
 ---
 
