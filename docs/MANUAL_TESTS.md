@@ -4,16 +4,19 @@ A runbook for verifying core functionality end-to-end. Each test takes 30s–2mi
 
 Assumes: `.env` populated with at least one provider key, `pnpm install` done, daemon not yet running. Use a real LLM — the point is to verify the whole stack including tool-routing decisions.
 
+Note: `miniclaw` (REPL), `miniclaw "prompt"` (one-shot), and `miniclaw chat` all **auto-start** a gateway daemon and attach to it; the daemon keeps running after you `/exit`. `--ephemeral` / `--stateless` are the only in-process (no-daemon) paths. If a section starts "daemon not running," stop any stray daemon first with `pnpm dev -- daemon stop`.
+
 If a test fails, stop and fix it before continuing — later tests share state through SQLite + the daemon socket.
 
 ---
 
-## A. REPL — basic loop (5 tests)
+## A. REPL — basic loop (6 tests)
 
-### A1. Boot + slash commands
+### A1. Boot + slash commands (auto-starts the daemon)
 
 ```bash
-pnpm dev
+pnpm dev -- daemon status     # → not running
+pnpm dev                      # spawns a daemon, then attaches
 ```
 
 At the prompt, type each line, hit enter:
@@ -21,15 +24,31 @@ At the prompt, type each line, hit enter:
 ```
 /help
 /skills
+/memories
 /status
 /dream
 /wiki_maintain
+/reset
 /exit
 ```
 
-**Expect:** `/help` lists commands including `/dream` and `/wiki_maintain`; `/skills` shows 20+ tools (sessions_*, cron_*, canvas_*, wiki_*, dream, write_memory, shell, …); `/status` prints provider/model/small model/security mode/wiki browser/db/conversation/workspace/skills count.
+**Expect:** the first run prints `attached to daemon on …/miniclaw.sock, channel=cli` then `· attached to session <uuid>`. `/help` lists the socket commands including `/skills`, `/memories`, `/reset`, `/dream`, `/wiki_maintain`, and `/make_skill`; `/skills` shows 20+ tools (sessions_*, cron_*, canvas_*, wiki_*, dream, write_memory, shell, …); `/memories` lists recent memories (or "(no memories yet …)"); `/status` prints provider/model/small model/security/wiki browser/db/session/channel/conversation/workspace/skills count; `/reset` replies `(reset — new session <uuid>)`. After `/exit`, `pnpm dev -- daemon status` shows the daemon **still running** (detach, not shutdown).
 
-**Proves:** REPL boots, env loads, registry assembles, meta-commands work.
+**Proves:** a normal launch auto-starts the daemon, attaches over the socket, and every slash command works over the wire; the daemon survives detach.
+
+---
+
+### A1b. Re-attach reuses the daemon
+
+```bash
+pnpm dev -- daemon status     # → running (pid N)  [from A1]
+pnpm dev                      # attaches; no second daemon spawned
+# then /exit
+```
+
+**Expect:** the second launch attaches near-instantly (no ~2s spawn delay) to the same pid. The session is **fresh** (repl defaults to a new conversation); `pnpm dev -- --resume` would continue the previous one instead.
+
+**Proves:** `ensureDaemon()` reuses a live daemon; per-launch session identity (fresh vs `--resume`).
 
 ---
 
@@ -113,9 +132,9 @@ pnpm dev
 pnpm dev -- "what's 2+2?"
 ```
 
-**Expect:** Prints `4` (or "4" in a sentence), exits to the shell prompt. No interactive `>` shown.
+**Expect:** Prints `4` (or "4" in a sentence), exits to the shell prompt. No interactive `>` shown. Like the REPL, one-shot auto-starts the daemon and runs the turn over the socket; the daemon stays up afterward (`pnpm dev -- daemon status`).
 
-**Proves:** One-shot mode runs exactly one turn and terminates.
+**Proves:** One-shot mode runs exactly one turn and terminates; the shared daemon persists.
 
 ---
 
@@ -125,9 +144,9 @@ pnpm dev -- "what's 2+2?"
 pnpm dev -- --stateless "what's my favorite color?"
 ```
 
-**Expect:** Agent cannot answer "teal" — it either says it doesn't know, or hallucinates. (Stateless skips memory retrieval and conversation history.)
+**Expect:** Agent cannot answer "teal" — it either says it doesn't know, or hallucinates. (Stateless skips memory retrieval and conversation history.) Runs in-process — no daemon is started or contacted.
 
-**Proves:** `StatelessContextManager` actually bypasses memory.
+**Proves:** `StatelessContextManager` actually bypasses memory; `--stateless` is the in-process bypass.
 
 ---
 
@@ -149,9 +168,9 @@ Then:
 pnpm dev -- "what do I drink?"
 ```
 
-**Expect:** Inside the ephemeral session, recall works. The second (non-ephemeral) invocation does *not* know about espresso — it was never written to disk.
+**Expect:** Inside the ephemeral session, recall works. The second (non-ephemeral) invocation — which goes through the daemon's SQLite — does *not* know about espresso; it was never written to disk.
 
-**Proves:** `InMemoryStore` is truly volatile; doesn't leak into the on-disk DB.
+**Proves:** `--ephemeral` runs in-process with a truly volatile `InMemoryStore` that doesn't leak into the on-disk DB the daemon uses.
 
 ---
 
@@ -627,7 +646,7 @@ rm -f ~/.miniclaw/miniclaw.sock ~/.miniclaw/miniclaw.pid
 | Symptom | First place to look |
 |---|---|
 | "API key is not set" but it's in `.env` | Shell exports an empty `EXPORT XXX_API_KEY=` — `packages/cli/src/env.ts` overrides empty shell values, but if your shell sets it to a non-empty *wrong* string, that wins. `env \| grep KEY` to check. |
-| `no daemon at /…/miniclaw.sock` | Daemon not started, or crashed. `pnpm dev -- daemon status`. |
+| `daemon failed to start within 10s` | The auto-started daemon never opened its socket. The err-log tail is printed (bad/missing key, or port in use); also check `$MINICLAW_HOME/daemon.err.log` and `pnpm dev -- daemon status`. |
 | Agent gives wrong answer | Probably model behaviour, not a code bug. Re-run; check `/usage` to confirm the right tool was called. |
 | Test C1 returns 0 | Audit log was wiped, or you're hitting a different `MINICLAW_HOME`. `sqlite3 ~/.miniclaw/miniclaw.db ".tables"`. |
 | Discord transport silently won't connect | Re-check **MESSAGE CONTENT INTENT** is enabled in the Developer Portal. Without it, `messageCreate` events arrive with empty content. |

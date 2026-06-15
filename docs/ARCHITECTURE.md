@@ -124,7 +124,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-  chat["miniclaw chat<br/>Unix socket client"]
+  chat["miniclaw repl / one-shot / chat<br/>Unix socket client"]
   discord["Discord DM transport<br/>pairing + allowlist"]
   daemon["Socket daemon<br/>JSON-lines protocol"]
   gateway["Gateway<br/>attach/spawn/list/history/end"]
@@ -148,9 +148,9 @@ flowchart LR
 
 Notes:
 
-- In daemon mode, `agentFor(session)` creates a `CompactingContextManager` bound to the session conversation id.
-- In REPL mode, `sessions_*` skills currently use a gateway whose `agentFor` returns the same CLI agent/context for all sessions, so session isolation is weaker there than in daemon mode.
-- REPL and daemon both register sessions, cron, canvas, wiki, and dream skills after their runtime stores/runners exist.
+- `agentFor(session)` (in `buildAgentStack`, shared by the daemon and the in-process bypass) creates a `CompactingContextManager` bound to the session conversation id, so session isolation is identical in both.
+- Normal launches (`miniclaw`, `miniclaw "prompt"`, `miniclaw chat`) attach to an auto-started daemon over the socket via `ensureDaemon()`; only `--ephemeral`/`--stateless` run in-process — a deliberately reduced bypass with no cron/transports.
+- Both paths register sessions, cron, canvas, wiki, and dream skills after their runtime stores/runners exist — centralized in `buildAgentStack` (`packages/cli/src/agent-stack.ts`).
 - Cron jobs deliver results back to their originating channel, but each job execution runs in a fresh ended `cron:<job-id>:<timestamp>` session. This prevents scheduled jobs from inheriting or extending a large Discord/CLI conversation context.
 
 ## Long-Term Memory Wiki

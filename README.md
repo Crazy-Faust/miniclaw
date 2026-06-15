@@ -4,11 +4,11 @@ A lightweight, local-first AI agent. It maps natural-language requests to a smal
 
 The repo is a **pnpm workspace** of 18 small packages. Every major subsystem (LLM provider, memory store, context strategy, tools, I/O, transport) is its own package behind an interface in `@miniclaw/core`, so each can be swapped or extended independently. Capabilities are delivered as [agentskills.io](https://agentskills.io/)-standard `SKILL.md` folders: the built-ins ship in `@miniclaw/agent-skills`, and you can drop your own into `<workspace>/skills/` or `$MINICLAW_HOME/skills/`.
 
-You can use miniclaw three ways:
+There's **one workflow**: however you start a session, miniclaw ensures a gateway daemon is running (spawning one if absent) and attaches to it over a Unix socket. The daemon owns the agent and keeps running after you detach, so cron and transports are always available.
 
-- **Single REPL** — `pnpm dev` opens an interactive prompt; the agent and the conversation live in one process.
-- **Daemon + attach** — `miniclaw daemon start` runs a long-lived gateway; `miniclaw chat` attaches to it over a Unix socket; the same daemon ticks scheduled jobs.
-- **Daemon + transport** — set `MINICLAW_DISCORD_TOKEN` and the same daemon also answers Discord DMs, with a per-channel allowlist + pairing-code onboarding.
+- **Attach** — `pnpm dev` (REPL), `pnpm dev -- "prompt"` (one-shot), and `miniclaw chat` all auto-start the daemon and attach as clients.
+- **Transport** — set `MINICLAW_DISCORD_TOKEN` and the same daemon also answers Discord DMs, with a per-channel allowlist + pairing-code onboarding.
+- **In-process bypass** — `--ephemeral` or `--stateless` skip the daemon and run a throwaway agent in one process (no cron/transports), for quick zero-state questions.
 
 ---
 
@@ -25,8 +25,8 @@ The setup script checks your toolchain, runs `pnpm install`, seeds `.env` (promp
 After it finishes:
 
 ```bash
-pnpm dev                              # REPL
-pnpm dev -- "what's 2+2?"             # one-shot
+pnpm dev                              # REPL (auto-starts a daemon, attaches)
+pnpm dev -- "what's 2+2?"             # one-shot (same daemon, then exits)
 ```
 
 The longhand step-by-step is below if you want to know what `pnpm setup` actually does, or if your platform isn't covered (Windows users should use WSL).
@@ -135,21 +135,16 @@ A complete reference for every env variable lives at the bottom of this file.
 pnpm dev
 ```
 
-You should see:
+The first run spawns a daemon in the background (takes a second or two), then attaches to it. You should see:
 
 ```
-compacting context
-wiki browser: http://127.0.0.1:49152/?token=...
-skills: write_memory, search_memory, shell, sql_query, read_file, list_directory, write_file, apply_patch, fetch_url,
-        sessions_list, sessions_history, sessions_send, sessions_spawn,
-        reminder_add, cron_add, cron_list, cron_remove, cron_pause,
-        canvas_create, canvas_update, canvas_list, canvas_delete,
-        wiki_search, wiki_read, wiki_list, wiki_maintain, dream
-type /help for slash commands, /exit to quit
+attached to daemon on /Users/you/.miniclaw/miniclaw.sock, channel=cli
+type /help for slash commands, /exit to detach
+  · attached to session 4b1f0c9a-…
 >
 ```
 
-(`web_search` shows up too if `MINICLAW_SEARCH_API_KEY` is set; the browser_* skills only appear if you've registered them and installed Playwright.)
+`/exit` only **detaches** — the daemon keeps running (and the wiki browser it started stays up). A second `pnpm dev` reuses the same daemon. List tools with `/skills`; stop the daemon with `pnpm dev -- daemon stop`. To run a throwaway agent in one process instead (no daemon), use `--ephemeral` or `--stateless`.
 
 ### 7. Try the built-in skills
 
@@ -214,13 +209,16 @@ Every tool call is captured **before** its result is returned to the model, so e
 ### 9. Other ways to run it
 
 ```bash
-# One-shot mode — run one turn and exit:
+# One-shot — auto-starts the daemon, runs one turn, exits (daemon stays up):
 pnpm dev -- "what time is it?"
 
-# Stateless (no history, no retrieval):
+# Resume the channel's session instead of a fresh one:
+pnpm dev -- --resume
+
+# Stateless (in-process bypass — no history/retrieval, no daemon):
 pnpm dev -- --stateless "summarize this paragraph for me"
 
-# Ephemeral (no disk writes — InMemoryStore):
+# Ephemeral (in-process bypass — no disk writes, InMemoryStore):
 pnpm dev -- --ephemeral
 
 # Combined — zero-state one-shot:
@@ -233,13 +231,16 @@ pnpm dev -- --help
 The full subcommand surface:
 
 ```bash
-miniclaw                              REPL (default)
-miniclaw "what is 2+2?"               one-shot
+miniclaw                              REPL — auto-starts a daemon and attaches
+miniclaw "what is 2+2?"               one-shot — same, runs one turn, then exits
+miniclaw --channel <name>             attach on a named channel (default: cli)
+miniclaw --resume                     resume the channel's session, not a fresh one
+miniclaw --ephemeral | --stateless    in-process bypass (no daemon, no cron/transports)
+miniclaw chat [--channel <name>]      attach to the daemon (resumes the channel)
 miniclaw daemon run                   run the gateway in the foreground (logs to stdout)
 miniclaw daemon start                 fork the daemon into the background
 miniclaw daemon stop                  send SIGTERM to the running daemon
 miniclaw daemon status                "running" / "not running"
-miniclaw chat [--channel <name>]      attach to a running daemon over its Unix socket
 miniclaw install launchd              write ~/Library/LaunchAgents/com.miniclaw.gateway.plist
 miniclaw install systemd              write ~/.config/systemd/user/miniclaw-gateway.service
 ```
@@ -264,7 +265,7 @@ MINICLAW_PROVIDER=openai \
 
 ## Daemon mode
 
-The daemon is a long-running gateway that supervises sessions, ticks the cron scheduler, and (optionally) runs transports.
+The daemon is a long-running gateway that supervises sessions, ticks the cron scheduler, and (optionally) runs transports. Normal launches (`miniclaw`, `miniclaw "prompt"`, `miniclaw chat`) **auto-start** it, so you rarely run these by hand — they're for managing the daemon's lifecycle explicitly:
 
 ```bash
 pnpm dev -- daemon run        # foreground, watch logs
@@ -273,14 +274,15 @@ pnpm dev -- daemon status     # show pid + socket path
 pnpm dev -- daemon stop       # SIGTERM the running daemon
 ```
 
-While the daemon is up, attach an interactive REPL with:
+Attach to it (each of these auto-starts the daemon if it isn't already running):
 
 ```bash
-pnpm dev -- chat                       # default channel "cli"
+pnpm dev                               # repl on channel "cli", fresh session
+pnpm dev -- chat                       # resume channel "cli"
 pnpm dev -- chat --channel myroom      # join a named channel
 ```
 
-Multiple `chat` clients can attach in parallel — each channel is its own session with its own conversation history. The agent itself lives in the daemon; `chat` only shuttles input/output over `$MINICLAW_HOME/miniclaw.sock`.
+Multiple clients can attach in parallel — each channel is its own session with its own conversation history. The agent itself lives in the daemon; the client only shuttles input/output over `$MINICLAW_HOME/miniclaw.sock`, plus a couple of host-local commands (`/make_skill` scaffolds into your workspace; tool-confirmation prompts are answered client-side).
 
 ### Auto-start on login
 
@@ -443,7 +445,7 @@ skill-folder root (so `scripts/` stays reserved for genuine standalone scripts).
 
 **`discord.js could not be loaded`** — the install is incomplete or corrupted. Run `pnpm install` from the repo root and retry.
 
-**`no daemon at /Users/you/.miniclaw/miniclaw.sock`** — you ran `miniclaw chat` without starting the daemon first. `miniclaw daemon start`.
+**`daemon failed to start within 10s`** — a launch auto-started a daemon but it never opened its socket. The tail of `$MINICLAW_HOME/daemon.err.log` is printed with the cause (usually a bad/missing provider key or the port already in use). Fix that and retry, or run in one process with `--ephemeral` / `--stateless`.
 
 **Discord bot replies "this account is not paired"** — that's correct on first contact. Look in the daemon log for the line `discord: pairing requested by ... — code XYZ…`, then DM the bot `/pair XYZ…`. Codes expire after 10 minutes.
 
