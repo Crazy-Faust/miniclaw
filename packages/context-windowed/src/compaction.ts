@@ -54,6 +54,11 @@ export interface CompactingContextOpts {
   summaryMessageMaxChars?: number;
   /** Hard cap per recent message kept in the live model context. Default 16000 chars. */
   recentMessageMaxChars?: number;
+  /**
+   * Extra text appended verbatim to the base system prompt — used to inject the
+   * agent-skills catalog (the `<available_skills>` section).
+   */
+  extraSystemPrompt?: string;
 }
 
 export const COMPACTING_SYSTEM_PROMPT = `You are miniclaw, a local-first AI agent that helps the user by calling tools.
@@ -133,9 +138,10 @@ export class CompactingContextManager implements ContextManager {
     const injected = opts.workspaceRoot
       ? loadPromptInjectionFiles(opts.workspaceRoot, opts.promptFiles, opts.promptFileMaxBytes)
       : "";
-    this.basePrompt = injected
+    const withFiles = injected
       ? `${COMPACTING_SYSTEM_PROMPT}\n\n${injected}`
       : COMPACTING_SYSTEM_PROMPT;
+    this.basePrompt = withFiles + (opts.extraSystemPrompt ?? "");
   }
 
   /**

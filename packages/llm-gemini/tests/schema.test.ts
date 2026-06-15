@@ -34,7 +34,7 @@ describe("sanitizeForGemini", () => {
   });
 
   it("strips exclusiveMinimum from .positive() / .min() on numbers", () => {
-    // Mirrors what skills-cron does for `id: z.number().int().positive()`.
+    // Mirrors what the cron skill does for `id: z.number().int().positive()`.
     const raw = jsonSchemaOf(z.object({ id: z.number().int().positive() }));
     expect(deepKeys(raw)).toContain("exclusiveMinimum");
 

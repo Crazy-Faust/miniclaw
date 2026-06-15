@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@miniclaw/agent": "workspace:*",
+    "@miniclaw/agent-skills": "workspace:*",
     "@miniclaw/context-windowed": "workspace:*",
     "@miniclaw/core": "workspace:*",
     "@miniclaw/dreaming": "workspace:*",
@@ -30,14 +31,6 @@
     "@miniclaw/memory-inmemory": "workspace:*",
     "@miniclaw/memory-sqlite": "workspace:*",
     "@miniclaw/gateway": "workspace:*",
-    "@miniclaw/skills-db": "workspace:*",
-    "@miniclaw/skills-fs": "workspace:*",
-    "@miniclaw/skills-canvas": "workspace:*",
-    "@miniclaw/skills-cron": "workspace:*",
-    "@miniclaw/skills-memory": "workspace:*",
-    "@miniclaw/skills-sessions": "workspace:*",
-    "@miniclaw/skills-shell": "workspace:*",
-    "@miniclaw/skills-web": "workspace:*",
     "@miniclaw/transport-discord": "workspace:*",
     "dotenv": "^16.4.5"
   }

@@ -18,7 +18,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@miniclaw/memory-inmemory": "workspace:*",
-    "@miniclaw/skills-memory": "workspace:*"
+    "@miniclaw/agent-skills": "workspace:*",
+    "@miniclaw/memory-inmemory": "workspace:*"
   }
 }

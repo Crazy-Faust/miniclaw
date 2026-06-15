@@ -1,61 +1,46 @@
 import type { MetaCommand, MetaCommandContext } from "@miniclaw/harness";
-import {
-  createSkillPackage,
-  defaultRepoRoot,
-  patchCliPackageJson,
-  patchCliSkills,
-} from "./files.ts";
-import { parseParamSpec } from "./parser.ts";
-import type { SkillSpec } from "./templates.ts";
+import { createSkillFolder, defaultSkillsDir } from "./files.ts";
+import { defaultScriptFileName, type ScriptLanguage, type SkillSpec } from "./templates.ts";
 
 export interface MakeSkillOpts {
-  /** Override the repo root for tests. Default: walks up from cli to find pnpm-workspace.yaml. */
-  repoRoot?: string;
-  /** Override the actual file writes. Used by tests; defaults to real writes. */
+  /** Where to scaffold. Defaults to `<workspace>/skills`. Tests override this. */
+  skillsDir?: string;
+  /** Override the file writes. Used by tests; defaults to real writes. */
   effects?: {
-    create: typeof createSkillPackage;
-    patchSkills: typeof patchCliSkills;
-    patchPackageJson: typeof patchCliPackageJson;
+    create: typeof createSkillFolder;
   };
 }
 
-const PKG_NAME_RE = /^[a-z][a-z0-9-]*$/;
-const TOOL_NAME_RE = /^[a-z][a-z0-9_]*$/;
+const NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const LANGUAGES: ReadonlySet<string> = new Set(["python", "node", "bash"]);
 
-// Interactive scaffolder: walks the user through choosing a name, tool name,
-// description, and parameter spec, then writes a new packages/skills-<name>/
-// and registers it in cli/src/skills.ts + cli/package.json. The whole flow
-// is `await`-driven on ctx.io.readLine so it works inside the harness loop.
+// Interactive scaffolder for agentskills.io SKILL.md folders. Walks the user
+// through a name, description, and an optional bundled script, then writes
+// `<skillsDir>/<name>/`. Skills are discovered at startup — there is nothing to
+// register.
 export function makeSkillCommand(opts: MakeSkillOpts = {}): MetaCommand {
-  const repoRoot = opts.repoRoot ?? defaultRepoRoot();
-  const effects = opts.effects ?? {
-    create: createSkillPackage,
-    patchSkills: patchCliSkills,
-    patchPackageJson: patchCliPackageJson,
-  };
+  const skillsDir = opts.skillsDir ?? defaultSkillsDir();
+  const create = opts.effects?.create ?? createSkillFolder;
 
   return {
     name: "/make_skill",
-    description: "Scaffold a new skill package and register it with the CLI.",
+    description: "Scaffold a new agentskills.io SKILL.md skill folder.",
     matches: (line) => line === "/make_skill",
     async run(_line, ctx) {
       const spec = await prompt(ctx);
       if (!spec) return; // user cancelled
 
       try {
-        const created = effects.create(spec, repoRoot);
-        const skillsPatch = effects.patchSkills(spec, repoRoot);
-        const pkgPatch = effects.patchPackageJson(spec, repoRoot);
-
+        const created = create(spec, skillsDir);
         ctx.io.write(
-          `\nCreated ${created.packageDir} with:\n` +
+          `\nCreated ${created.skillDir} with:\n` +
             created.files.map((f) => `  ${f}\n`).join("") +
-            `\nRegistration: skills.ts ${skillsPatch.changed ? "updated" : "(unchanged)"}, ` +
-            `cli/package.json ${pkgPatch.changed ? "updated" : "(unchanged)"}\n` +
-            `\nNext steps:\n` +
-            `  1. pnpm install            # link the new workspace package\n` +
-            `  2. open packages/skills-${spec.pkgName}/src/skill.ts and implement execute()\n` +
-            `  3. pnpm typecheck && pnpm test\n\n`,
+            `\nThe skill is discovered automatically next time miniclaw starts ` +
+            `(it scans <workspace>/skills and $MINICLAW_HOME/skills).\n` +
+            (spec.script
+              ? `Run its script with run_skill_script(skill="${spec.name}", script="scripts/${spec.script.fileName}").\n`
+              : "") +
+            `Open ${spec.name}/SKILL.md and write the instructions.\n\n`,
         );
       } catch (err) {
         ctx.io.write(`\nrefused: ${(err as Error).message}\n\n`);
@@ -66,48 +51,45 @@ export function makeSkillCommand(opts: MakeSkillOpts = {}): MetaCommand {
 
 async function prompt(ctx: MetaCommandContext): Promise<SkillSpec | null> {
   ctx.io.write(
-    "Scaffolding a new skill. Press Ctrl-D / EOF at any prompt to cancel.\n",
+    "Scaffolding a new SKILL.md skill. Press Ctrl-D / EOF at any prompt to cancel.\n",
   );
 
-  const pkgName = await ask(ctx, "Skill package name (kebab-case, e.g. fetch-url): ", (v) => {
-    if (!PKG_NAME_RE.test(v)) return "must be lowercase kebab-case (e.g. fetch-url)";
-    return null;
-  });
-  if (pkgName === null) return null;
+  const name = await ask(ctx, "Skill name (kebab-case, e.g. pdf-tools): ", (v) =>
+    NAME_RE.test(v) ? null : "must be lowercase kebab-case (letters, digits, single hyphens)",
+  );
+  if (name === null) return null;
 
-  const toolName = await ask(
+  const description = await ask(
     ctx,
-    `Tool name shown to the LLM (snake_case, e.g. fetch_url) [${suggestToolName(pkgName)}]: `,
-    (v) => (v === "" ? null : TOOL_NAME_RE.test(v) ? null : "must be lowercase snake_case"),
-    /* allowEmpty (use the suggestion) */ true,
-  );
-  if (toolName === null) return null;
-  const effectiveToolName = toolName === "" ? suggestToolName(pkgName) : toolName;
-
-  const description = await ask(ctx, "One-line description: ", (v) =>
-    v.length === 0 ? "must be non-empty" : null,
+    "One-line description (what it does + when to use it): ",
+    (v) => (v.length === 0 ? "must be non-empty" : null),
   );
   if (description === null) return null;
 
-  const paramSpec = await ask(
+  const langRaw = await ask(
     ctx,
-    "Parameters (e.g. 'url:string, timeout:number?'; blank for none): ",
+    "Bundle a script? (none/python/node/bash) [none]: ",
     (v) => {
-      try { parseParamSpec(v); return null; }
-      catch (err) { return (err as Error).message; }
+      const lower = v.toLowerCase();
+      return lower === "" || lower === "none" || LANGUAGES.has(lower)
+        ? null
+        : "choose none, python, node, or bash";
     },
     /* allowEmpty */ true,
   );
-  if (paramSpec === null) return null;
+  if (langRaw === null) return null;
 
-  const params = parseParamSpec(paramSpec);
+  const lang = langRaw.toLowerCase();
+  let script: SkillSpec["script"];
+  if (LANGUAGES.has(lang)) {
+    const language = lang as ScriptLanguage;
+    const def = defaultScriptFileName(language);
+    const fileName = await ask(ctx, `Script file name [${def}]: `, () => null, true);
+    if (fileName === null) return null;
+    script = { language, fileName: fileName === "" ? def : fileName };
+  }
 
-  return {
-    pkgName,
-    toolName: effectiveToolName,
-    description,
-    params,
-  };
+  return { name, description, script };
 }
 
 async function ask(
@@ -131,8 +113,4 @@ async function ask(
   }
   ctx.io.write("  (cancelled — too many invalid attempts)\n");
   return null;
-}
-
-function suggestToolName(pkgName: string): string {
-  return pkgName.replace(/-/g, "_");
 }

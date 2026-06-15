@@ -13,7 +13,7 @@ import {
   type ToolSpec,
 } from "@miniclaw/core";
 import { SqliteStore } from "@miniclaw/memory-sqlite";
-import { searchMemorySkill, writeMemorySkill } from "@miniclaw/skills-memory";
+import { searchMemorySkill, writeMemorySkill } from "@miniclaw/agent-skills";
 
 import {
   exitCommand,

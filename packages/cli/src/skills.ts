@@ -1,42 +1,61 @@
+import { join } from "node:path";
 import { SkillRegistry } from "@miniclaw/core";
-import { sqlQuerySkill } from "@miniclaw/skills-db";
 import {
-  applyPatchSkill,
-  listDirectorySkill,
-  readFileSkill,
-  writeFileSkill,
-} from "@miniclaw/skills-fs";
-import { searchMemorySkill, writeMemorySkill } from "@miniclaw/skills-memory";
-import { shellSkill } from "@miniclaw/skills-shell";
-import {
-  createWebSearchSkill,
-  fetchUrlSkillFromEnv,
-  searchProviderFromEnv,
-} from "@miniclaw/skills-web";
+  BUILTIN_SKILLS_DIR,
+  loadAgentSkills,
+  type DiscoverDiagnostic,
+  type SkillDir,
+} from "@miniclaw/agent-skills";
 
-// The single place where dependency-free built-in skills are stitched
-// together. Runtime-bound skills (sessions, cron, canvas, dream) are
-// registered in main.ts once their stores/gateways/runners exist. Exposing
-// this as a function (not inlined in main.ts) lets tests assert the base
-// wiring without booting the REPL.
+export interface LoadSkillsOptions {
+  /** MINICLAW_HOME — its `skills/` subdir is scanned as the user scope (trusted). */
+  home?: string;
+  /** Workspace root — its `skills/` subdir is scanned as the project scope (untrusted). */
+  workspaceRoot?: string;
+  /** Defaults to process.env. Gates the web skills and feeds built-in factories. */
+  env?: NodeJS.ProcessEnv;
+}
+
+export interface LoadedSkills {
+  registry: SkillRegistry;
+  /** System-prompt catalog section for the discovered skills ("" when none). */
+  catalog: string;
+  /** Summary of every discovered SKILL.md skill (for the /skills command). */
+  skills: Array<{ name: string; description: string; scope: string }>;
+  diagnostics: DiscoverDiagnostic[];
+}
+
+// The single place where built-in skills are stitched together. Skills are
+// discovered as agentskills.io SKILL.md folders: bundled built-ins ship in
+// @miniclaw/agent-skills and are backed by in-process handlers (shell,
+// filesystem, database, web, memory); user ($MINICLAW_HOME/skills) and
+// workspace skills are discovered for the catalog + use_skill + run_skill_script.
 //
-// `env` is injected so tests can assert provider-key gating (web_search is
-// only registered when MINICLAW_SEARCH_API_KEY is set; fetch_url's allowlist
-// comes from MINICLAW_WEB_ALLOWLIST).
-export function buildRegistry(env: NodeJS.ProcessEnv = process.env): SkillRegistry {
-  const registry = new SkillRegistry();
-  registry.register(writeMemorySkill);
-  registry.register(searchMemorySkill);
-  registry.register(shellSkill);
-  registry.register(sqlQuerySkill);
-  registry.register(readFileSkill);
-  registry.register(listDirectorySkill);
-  registry.register(writeFileSkill);
-  registry.register(applyPatchSkill);
-  registry.register(fetchUrlSkillFromEnv(env));
-  const searchProvider = searchProviderFromEnv(env);
-  if (searchProvider) {
-    registry.register(createWebSearchSkill({ provider: searchProvider }));
+// Runtime-bound skills (sessions, cron, canvas, dream, wiki) are registered by
+// the caller (main.ts / daemon.ts) once their stores/gateways exist.
+export function loadSkills(opts: LoadSkillsOptions = {}): LoadedSkills {
+  const env = opts.env ?? process.env;
+
+  const dirs: SkillDir[] = [{ path: BUILTIN_SKILLS_DIR, scope: "bundled", trusted: true }];
+  if (opts.home) dirs.push({ path: join(opts.home, "skills"), scope: "user", trusted: true });
+  if (opts.workspaceRoot) {
+    dirs.push({ path: join(opts.workspaceRoot, "skills"), scope: "workspace", trusted: false });
   }
-  return registry;
+
+  const agentSkills = loadAgentSkills({ dirs, env });
+
+  const registry = new SkillRegistry();
+  // Handler-backed built-in tools discovered from bundled SKILL.md folders.
+  for (const tool of agentSkills.tools) registry.register(tool);
+  // Skill activation + bundled-script execution.
+  if (agentSkills.useSkillTool) registry.register(agentSkills.useSkillTool);
+  if (agentSkills.runScriptTool) registry.register(agentSkills.runScriptTool);
+
+  const skills = agentSkills.skills.map((s) => ({
+    name: s.name,
+    description: s.description,
+    scope: s.scope,
+  }));
+
+  return { registry, catalog: agentSkills.catalog, skills, diagnostics: agentSkills.diagnostics };
 }

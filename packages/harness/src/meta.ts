@@ -51,15 +51,33 @@ export function helpCommand(getAll: () => MetaCommand[]): MetaCommand {
   };
 }
 
-export function skillsCommand(registry: SkillRegistry): MetaCommand {
+export interface AgentSkillSummary {
+  name: string;
+  description: string;
+  scope?: string;
+}
+
+export function skillsCommand(
+  registry: SkillRegistry,
+  agentSkills: ReadonlyArray<AgentSkillSummary> = [],
+): MetaCommand {
   return {
     name: "/skills",
-    description: "List registered skills.",
+    description: "List registered tools and available SKILL.md skills.",
     matches: (line) => line === "/skills",
     run: (_line, ctx) => {
+      ctx.io.write("Tools:\n");
       for (const s of registry.list()) {
         const first = s.description.split("\n")[0] ?? "";
         ctx.io.write(`  ${s.name} — ${first}\n`);
+      }
+      if (agentSkills.length > 0) {
+        ctx.io.write("\nSkills (SKILL.md, load with use_skill):\n");
+        for (const s of agentSkills) {
+          const first = s.description.split("\n")[0] ?? "";
+          const scope = s.scope ? ` [${s.scope}]` : "";
+          ctx.io.write(`  ${s.name}${scope} — ${first}\n`);
+        }
       }
     },
   };

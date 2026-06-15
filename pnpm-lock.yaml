@@ -34,24 +34,15 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@miniclaw/agent-skills':
+        specifier: workspace:*
+        version: link:../agent-skills
       '@miniclaw/context-windowed':
         specifier: workspace:*
         version: link:../context-windowed
       '@miniclaw/memory-sqlite':
         specifier: workspace:*
         version: link:../memory-sqlite
-      '@miniclaw/skills-db':
-        specifier: workspace:*
-        version: link:../skills-db
-      '@miniclaw/skills-memory':
-        specifier: workspace:*
-        version: link:../skills-memory
-      '@miniclaw/skills-shell':
-        specifier: workspace:*
-        version: link:../skills-shell
-      '@miniclaw/skills-todo':
-        specifier: workspace:*
-        version: link:../skills-todo
       better-sqlite3:
         specifier: ^12.10.0
         version: 12.10.0
@@ -59,11 +50,42 @@ importers:
         specifier: ^3.23.8
         version: 3.25.76
 
+  packages/agent-skills:
+    dependencies:
+      '@miniclaw/core':
+        specifier: workspace:*
+        version: link:../core
+      '@miniclaw/gateway':
+        specifier: workspace:*
+        version: link:../gateway
+      better-sqlite3:
+        specifier: ^12.10.0
+        version: 12.10.0
+      playwright:
+        specifier: '*'
+        version: 1.60.0
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@miniclaw/agent':
+        specifier: workspace:*
+        version: link:../agent
+      '@miniclaw/memory-inmemory':
+        specifier: workspace:*
+        version: link:../memory-inmemory
+      '@miniclaw/memory-sqlite':
+        specifier: workspace:*
+        version: link:../memory-sqlite
+
   packages/cli:
     dependencies:
       '@miniclaw/agent':
         specifier: workspace:*
         version: link:../agent
+      '@miniclaw/agent-skills':
+        specifier: workspace:*
+        version: link:../agent-skills
       '@miniclaw/context-stateless':
         specifier: workspace:*
         version: link:../context-stateless
@@ -100,30 +122,6 @@ importers:
       '@miniclaw/memory-wiki':
         specifier: workspace:*
         version: link:../memory-wiki
-      '@miniclaw/skills-canvas':
-        specifier: workspace:*
-        version: link:../skills-canvas
-      '@miniclaw/skills-cron':
-        specifier: workspace:*
-        version: link:../skills-cron
-      '@miniclaw/skills-db':
-        specifier: workspace:*
-        version: link:../skills-db
-      '@miniclaw/skills-fs':
-        specifier: workspace:*
-        version: link:../skills-fs
-      '@miniclaw/skills-memory':
-        specifier: workspace:*
-        version: link:../skills-memory
-      '@miniclaw/skills-sessions':
-        specifier: workspace:*
-        version: link:../skills-sessions
-      '@miniclaw/skills-shell':
-        specifier: workspace:*
-        version: link:../skills-shell
-      '@miniclaw/skills-web':
-        specifier: workspace:*
-        version: link:../skills-web
       '@miniclaw/transport-discord':
         specifier: workspace:*
         version: link:../transport-discord
@@ -171,12 +169,12 @@ importers:
         specifier: ^3.23.8
         version: 3.25.76
     devDependencies:
+      '@miniclaw/agent-skills':
+        specifier: workspace:*
+        version: link:../agent-skills
       '@miniclaw/memory-inmemory':
         specifier: workspace:*
         version: link:../memory-inmemory
-      '@miniclaw/skills-memory':
-        specifier: workspace:*
-        version: link:../skills-memory
 
   packages/gateway:
     dependencies:
@@ -199,15 +197,15 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@miniclaw/agent-skills':
+        specifier: workspace:*
+        version: link:../agent-skills
       '@miniclaw/context-windowed':
         specifier: workspace:*
         version: link:../context-windowed
       '@miniclaw/memory-sqlite':
         specifier: workspace:*
         version: link:../memory-sqlite
-      '@miniclaw/skills-memory':
-        specifier: workspace:*
-        version: link:../skills-memory
 
   packages/io-http:
     dependencies:
@@ -289,123 +287,6 @@ importers:
       '@miniclaw/memory-inmemory':
         specifier: workspace:*
         version: link:../memory-inmemory
-
-  packages/skills-browser:
-    dependencies:
-      '@miniclaw/core':
-        specifier: workspace:*
-        version: link:../core
-      '@miniclaw/skills-fs':
-        specifier: workspace:*
-        version: link:../skills-fs
-      playwright:
-        specifier: '*'
-        version: 1.60.0
-      zod:
-        specifier: ^3.23.8
-        version: 3.25.76
-
-  packages/skills-canvas:
-    dependencies:
-      '@miniclaw/core':
-        specifier: workspace:*
-        version: link:../core
-      zod:
-        specifier: ^3.23.8
-        version: 3.25.76
-
-  packages/skills-cron:
-    dependencies:
-      '@miniclaw/core':
-        specifier: workspace:*
-        version: link:../core
-      '@miniclaw/gateway':
-        specifier: workspace:*
-        version: link:../gateway
-      zod:
-        specifier: ^3.23.8
-        version: 3.25.76
-    devDependencies:
-      '@miniclaw/memory-inmemory':
-        specifier: workspace:*
-        version: link:../memory-inmemory
-
-  packages/skills-db:
-    dependencies:
-      '@miniclaw/core':
-        specifier: workspace:*
-        version: link:../core
-      better-sqlite3:
-        specifier: ^12.10.0
-        version: 12.10.0
-      zod:
-        specifier: ^3.23.8
-        version: 3.25.76
-
-  packages/skills-fs:
-    dependencies:
-      '@miniclaw/core':
-        specifier: workspace:*
-        version: link:../core
-      zod:
-        specifier: ^3.23.8
-        version: 3.25.76
-
-  packages/skills-memory:
-    dependencies:
-      '@miniclaw/core':
-        specifier: workspace:*
-        version: link:../core
-      zod:
-        specifier: ^3.23.8
-        version: 3.25.76
-    devDependencies:
-      '@miniclaw/memory-sqlite':
-        specifier: workspace:*
-        version: link:../memory-sqlite
-
-  packages/skills-sessions:
-    dependencies:
-      '@miniclaw/core':
-        specifier: workspace:*
-        version: link:../core
-      '@miniclaw/gateway':
-        specifier: workspace:*
-        version: link:../gateway
-      zod:
-        specifier: ^3.23.8
-        version: 3.25.76
-    devDependencies:
-      '@miniclaw/agent':
-        specifier: workspace:*
-        version: link:../agent
-
-  packages/skills-shell:
-    dependencies:
-      '@miniclaw/core':
-        specifier: workspace:*
-        version: link:../core
-      zod:
-        specifier: ^3.23.8
-        version: 3.25.76
-
-  packages/skills-todo:
-    dependencies:
-      '@miniclaw/core':
-        specifier: workspace:*
-        version: link:../core
-      zod:
-        specifier: ^3.23.8
-        version: 3.25.76
-
-  packages/skills-web:
-    dependencies:
-      '@miniclaw/core':
-        specifier: workspace:*
-        version: link:../core
-      zod:
-        specifier: ^3.23.8
-        version: 3.25.76
 
   packages/transport-discord:
     dependencies:

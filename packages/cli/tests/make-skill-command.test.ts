@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,13 +8,11 @@ import { Harness, type IOAdapter } from "@miniclaw/harness";
 
 import { makeSkillCommand, type SkillSpec } from "../src/make-skill/index.ts";
 
-type CreateFn = (spec: SkillSpec, root: string) => { packageDir: string; files: string[] };
-type PatchFn = (spec: SkillSpec, root: string) => { changed: boolean };
+type CreateFn = (spec: SkillSpec, skillsDir: string) => { skillDir: string; files: string[] };
 
-// Drive the /make_skill wizard through the harness with a scripted IO.
-// The actual file effects are mocked so we only assert on the prompts and
-// the side-effect calls — the real file operations are tested separately
-// in make-skill-files.test.ts.
+// Drive the /make_skill wizard through the harness with a scripted IO. The file
+// effect is mocked so we only assert on the prompts and the SkillSpec the wizard
+// builds; the real file operations are tested in make-skill-files.test.ts.
 
 class ScriptedIO implements IOAdapter {
   outputs: string[] = [];
@@ -37,133 +35,102 @@ class ScriptedIO implements IOAdapter {
 const noopAgent = { runTurn: async () => ({ toolCalls: [], finalText: "" }) } as unknown as Agent;
 
 describe("makeSkillCommand wizard", () => {
-  let root: string;
+  let skillsDir: string;
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "miniclaw-wizard-"));
-    mkdirSync(join(root, "packages"), { recursive: true });
-    writeFileSync(join(root, "pnpm-workspace.yaml"), "packages:\n  - 'packages/*'\n");
+    skillsDir = mkdtempSync(join(tmpdir(), "miniclaw-wizard-"));
   });
   afterEach(() => {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(skillsDir, { recursive: true, force: true });
   });
 
-  it("walks through the prompts and calls each effect once on the happy path", async () => {
+  it("walks the prompts and builds a SkillSpec with a bundled script", async () => {
     const io = new ScriptedIO([
       "/make_skill",
-      "fetch-url",            // pkg name
-      "",                     // tool name — accept suggestion
-      "Fetch a URL.",         // description
-      "url:string",           // params
-      null,                   // EOF terminates the loop
+      "pdf-tools",          // name
+      "Work with PDFs.",    // description
+      "python",             // bundle a script? -> python
+      "",                   // script file name -> accept default run.py
+      null,                 // EOF terminates the loop
     ]);
     const create = vi.fn<CreateFn>(() => ({
-      packageDir: join(root, "packages", "skills-fetch-url"),
-      files: ["package.json", "tsconfig.json", "src/skill.ts", "src/index.ts", "tests/skill.test.ts"],
+      skillDir: join(skillsDir, "pdf-tools"),
+      files: ["SKILL.md", "scripts/run.py"],
     }));
-    const patchSkills = vi.fn<PatchFn>(() => ({ changed: true }));
-    const patchPackageJson = vi.fn<PatchFn>(() => ({ changed: true }));
 
-    const cmd = makeSkillCommand({
-      repoRoot: root,
-      effects: { create, patchSkills, patchPackageJson },
-    });
-
+    const cmd = makeSkillCommand({ skillsDir, effects: { create } });
     await new Harness({ agent: noopAgent, io, metaCommands: [cmd] }).run();
 
     expect(create).toHaveBeenCalledTimes(1);
-    expect(patchSkills).toHaveBeenCalledTimes(1);
-    expect(patchPackageJson).toHaveBeenCalledTimes(1);
-
-    // First arg is the SkillSpec; verify the wizard built it right.
     const spec = create.mock.calls[0]![0]!;
     expect(spec).toMatchObject({
-      pkgName: "fetch-url",
-      toolName: "fetch_url",     // derived from blank input + suggestion
-      description: "Fetch a URL.",
-      params: [{ name: "url", type: "string", optional: false }],
+      name: "pdf-tools",
+      description: "Work with PDFs.",
+      script: { language: "python", fileName: "run.py" },
     });
-
     expect(io.text).toMatch(/Created/);
-    expect(io.text).toMatch(/Next steps/);
+    expect(io.text).toMatch(/run_skill_script/);
   });
 
-  it("re-prompts on invalid pkg name and accepts the corrected value", async () => {
+  it("builds a script-less SkillSpec when the user answers 'none'", async () => {
     const io = new ScriptedIO([
       "/make_skill",
-      "BadName",              // rejected
-      "fetch-url",            // accepted
-      "fetch_url",
-      "desc",
-      "",                     // empty params
+      "notes",
+      "Keep notes.",
+      "none",
       null,
     ]);
-    const create = vi.fn<CreateFn>(() => ({
-      packageDir: "",
-      files: [],
-    }));
+    const create = vi.fn<CreateFn>(() => ({ skillDir: join(skillsDir, "notes"), files: ["SKILL.md"] }));
 
-    const cmd = makeSkillCommand({
-      repoRoot: root,
-      effects: {
-        create,
-        patchSkills: vi.fn<PatchFn>(() => ({ changed: true })),
-        patchPackageJson: vi.fn<PatchFn>(() => ({ changed: true })),
-      },
-    });
+    const cmd = makeSkillCommand({ skillsDir, effects: { create } });
+    await new Harness({ agent: noopAgent, io, metaCommands: [cmd] }).run();
 
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0]![0]!.script).toBeUndefined();
+  });
+
+  it("re-prompts on an invalid name and accepts the corrected value", async () => {
+    const io = new ScriptedIO([
+      "/make_skill",
+      "Bad Name",            // rejected (space + uppercase)
+      "good-name",           // accepted
+      "desc",
+      "none",
+      null,
+    ]);
+    const create = vi.fn<CreateFn>(() => ({ skillDir: "", files: [] }));
+
+    const cmd = makeSkillCommand({ skillsDir, effects: { create } });
     await new Harness({ agent: noopAgent, io, metaCommands: [cmd] }).run();
 
     expect(io.text).toMatch(/error: must be lowercase kebab-case/);
     expect(create).toHaveBeenCalledTimes(1);
-    expect(create.mock.calls[0]![0]!.pkgName).toBe("fetch-url");
-    // Empty params parsed as []
-    expect(create.mock.calls[0]![0]!.params).toEqual([]);
+    expect(create.mock.calls[0]![0]!.name).toBe("good-name");
   });
 
-  it("cancels cleanly on EOF mid-prompt without calling effects", async () => {
-    const io = new ScriptedIO([
-      "/make_skill",
-      null,                   // EOF before answering the first prompt
-    ]);
-    const create = vi.fn<CreateFn>(() => ({ packageDir: "", files: [] }));
+  it("cancels cleanly on EOF without calling the effect", async () => {
+    const io = new ScriptedIO(["/make_skill", null]);
+    const create = vi.fn<CreateFn>(() => ({ skillDir: "", files: [] }));
 
-    const cmd = makeSkillCommand({
-      repoRoot: root,
-      effects: {
-        create,
-        patchSkills: vi.fn<PatchFn>(() => ({ changed: false })),
-        patchPackageJson: vi.fn<PatchFn>(() => ({ changed: false })),
-      },
-    });
-
+    const cmd = makeSkillCommand({ skillsDir, effects: { create } });
     await new Harness({ agent: noopAgent, io, metaCommands: [cmd] }).run();
 
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("surfaces a thrown effect (e.g. directory exists) as 'refused: ...'", async () => {
+  it("surfaces a thrown effect as 'refused: ...'", async () => {
     const io = new ScriptedIO([
       "/make_skill",
-      "fetch-url",
-      "fetch_url",
+      "pdf-tools",
       "desc",
-      "",
+      "none",
       null,
     ]);
     const create = vi.fn<CreateFn>(() => {
       throw new Error("directory already exists: x");
     });
 
-    const cmd = makeSkillCommand({
-      repoRoot: root,
-      effects: {
-        create,
-        patchSkills: vi.fn<PatchFn>(() => ({ changed: false })),
-        patchPackageJson: vi.fn<PatchFn>(() => ({ changed: false })),
-      },
-    });
-
+    const cmd = makeSkillCommand({ skillsDir, effects: { create } });
     await new Harness({ agent: noopAgent, io, metaCommands: [cmd] }).run();
 
     expect(io.text).toMatch(/refused: directory already exists/);
