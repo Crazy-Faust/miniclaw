@@ -36,8 +36,9 @@ export interface SocketDaemonHandle {
 
 /**
  * Open a Unix-domain socket. Each client speaks JSON-Lines. The very
- * first message must be { "type": "attach", "channel": "..." }. After
- * that the server accepts:
+ * first message must be { "type": "attach", "channel": "...", "fresh"?: bool }
+ * — fresh:true spawns a new session, otherwise the channel's active session
+ * is resumed. After that the server accepts:
  *
  *   { type: "user",  text: "..." }      -> run one agent turn
  *   { type: "end" }                     -> end the session and disconnect
@@ -115,7 +116,9 @@ function handleClient(socket: Socket, gateway: Gateway, controls?: SocketDaemonC
         return;
       }
       channel = ch;
-      session = gateway.attach(channel);
+      // fresh:true forces a new session (gateway.spawn ends any active one on
+      // the channel); the default find-or-create resumes it (gateway.attach).
+      session = msg.fresh ? gateway.spawn(channel) : gateway.attach(channel);
       send({ type: "attached", sessionId: session.record.id, channel });
       return;
     }

@@ -4,7 +4,7 @@ import { parseArgs } from "../src/argv.ts";
 describe("parseArgs", () => {
   it("returns the interactive defaults when argv is empty", () => {
     expect(parseArgs([])).toEqual({
-      mode: { kind: "repl", stateless: false, ephemeral: false },
+      mode: { kind: "repl", stateless: false, ephemeral: false, resume: false },
     });
   });
 
@@ -15,16 +15,36 @@ describe("parseArgs", () => {
         prompt: "what is the time",
         stateless: false,
         ephemeral: false,
+        resume: false,
       },
     });
   });
 
   it("recognizes --stateless and --ephemeral on REPL", () => {
     expect(parseArgs(["--stateless"])).toEqual({
-      mode: { kind: "repl", stateless: true, ephemeral: false },
+      mode: { kind: "repl", stateless: true, ephemeral: false, resume: false },
     });
     expect(parseArgs(["--ephemeral"])).toEqual({
-      mode: { kind: "repl", stateless: false, ephemeral: true },
+      mode: { kind: "repl", stateless: false, ephemeral: true, resume: false },
+    });
+  });
+
+  it("repl picks up --channel and --resume", () => {
+    expect(parseArgs(["--channel", "work", "--resume"])).toEqual({
+      mode: { kind: "repl", stateless: false, ephemeral: false, channel: "work", resume: true },
+    });
+  });
+
+  it("one-shot picks up --channel and --resume", () => {
+    expect(parseArgs(["--channel", "work", "--resume", "hello there"])).toEqual({
+      mode: {
+        kind: "one-shot",
+        prompt: "hello there",
+        stateless: false,
+        ephemeral: false,
+        channel: "work",
+        resume: true,
+      },
     });
   });
 
@@ -40,6 +60,7 @@ describe("parseArgs", () => {
         prompt: "tell me a joke",
         stateless: true,
         ephemeral: true,
+        resume: false,
       },
     });
   });
@@ -55,6 +76,7 @@ describe("parseArgs", () => {
         prompt: "hello",
         stateless: true,
         ephemeral: false,
+        resume: false,
       },
     });
   });

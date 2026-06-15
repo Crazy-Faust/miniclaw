@@ -52,7 +52,7 @@ import { buildToolGuard, describeSecurityMode } from "./security.ts";
 import { makeSkillCommand } from "./make-skill/index.ts";
 import { loadSkills } from "./skills.ts";
 import { runDaemon } from "./daemon.ts";
-import { runChat } from "./chat.ts";
+import { runClient } from "./chat.ts";
 import { runInstall } from "./install.ts";
 
 interface Closeable { close(): void; }
@@ -85,14 +85,27 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       );
       return;
     case "chat":
-      await runChat(mode.channel);
+      await runClient({ channel: mode.channel, fresh: false });
       return;
     case "install":
       runInstall(mode.target, loadConfig());
       return;
     case "repl":
+      // --ephemeral / --stateless are the only in-process bypass (D2);
+      // every other launch attaches to an (auto-started) daemon. repl
+      // defaults to a fresh session per launch unless --resume is given.
+      if (mode.stateless || mode.ephemeral) {
+        await runAgent(mode, loadConfig());
+        return;
+      }
+      await runClient({ channel: mode.channel ?? "cli", fresh: !mode.resume });
+      return;
     case "one-shot":
-      await runAgent(mode, loadConfig());
+      if (mode.stateless || mode.ephemeral) {
+        await runAgent(mode, loadConfig());
+        return;
+      }
+      await runClient({ channel: mode.channel ?? "cli", fresh: !mode.resume, oneShot: mode.prompt });
       return;
   }
 }
@@ -243,6 +256,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
   const banner = oneShotIO
     ? undefined
     : (
+        `(in-process mode — no daemon, cron/transports unavailable)\n` +
         `${stateless ? "stateless context" : "compacting context"}\n` +
         (wikiBrowser ? `wiki browser: ${wikiBrowser.url}\n` : "") +
         `type /help for slash commands, /exit to quit\n`

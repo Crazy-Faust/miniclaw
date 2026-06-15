@@ -7,29 +7,48 @@ export interface SocketAttachOpts {
   channel: string;
   /** Banner printed once before the prompt loop starts. */
   banner?: string;
+  /**
+   * Spawn a brand-new session for the channel instead of resuming its
+   * active one. Maps to the daemon's gateway.spawn() vs gateway.attach().
+   */
+  fresh?: boolean;
+  /**
+   * Non-interactive one-shot: send this text as a single turn, print the
+   * final answer, then detach — no readline loop is started and the daemon
+   * keeps running. Used by `miniclaw "prompt"`.
+   */
+  oneShot?: string;
 }
 
 /**
- * Connect to the daemon over a Unix socket and run an interactive REPL
- * where every line goes to the daemon and every token/tool/final event
- * comes back from it. The local process owns only stdin, stdout, and a
- * tiny `/exit` shortcut — the agent itself runs in the daemon.
+ * Connect to the daemon over a Unix socket. In interactive mode every line
+ * goes to the daemon and every token/tool/final event comes back from it;
+ * the local process owns only stdin, stdout, and a tiny `/exit` shortcut.
  *
- * Returns when the user hits EOF, types /exit, or the daemon closes the
- * connection.
+ * In one-shot mode (opts.oneShot set) there is no prompt loop: the client
+ * sends a single turn, prints the final answer once, and detaches.
+ *
+ * Returns when the user hits EOF, types /exit, the one-shot turn finishes,
+ * or the daemon closes the connection.
  */
 export async function socketAttachIO(opts: SocketAttachOpts): Promise<void> {
+  const interactive = opts.oneShot === undefined;
   const socket = await connect(opts.socketPath);
   socket.setEncoding("utf8");
 
-  const rl = readline.createInterface({ input, output });
+  const rl = interactive ? readline.createInterface({ input, output }) : null;
   if (opts.banner) output.write(opts.banner.endsWith("\n") ? opts.banner : opts.banner + "\n");
 
   let buffer = "";
   let waiter: { resolve: () => void; reject: (e: Error) => void } | null = null;
+  let resolveAttached: (() => void) | null = null;
+  const attached = new Promise<void>((r) => { resolveAttached = r; });
   let closedByServer = false;
 
-  socket.write(JSON.stringify({ type: "attach", channel: opts.channel }) + "\n");
+  const settleWaiter = (): void => { if (waiter) { waiter.resolve(); waiter = null; } };
+  const markAttached = (): void => { if (resolveAttached) { resolveAttached(); resolveAttached = null; } };
+
+  socket.write(JSON.stringify({ type: "attach", channel: opts.channel, fresh: opts.fresh ?? false }) + "\n");
 
   socket.on("data", (chunk: string | Buffer) => {
     buffer += typeof chunk === "string" ? chunk : chunk.toString("utf8");
@@ -48,104 +67,110 @@ export async function socketAttachIO(opts: SocketAttachOpts): Promise<void> {
     }
   });
 
-  socket.on("close", () => {
+  // Both a clean close and a transport error end the loop. The previous
+  // client had no "error" handler, so a mid-turn ECONNRESET would crash the
+  // process; treat it like a close. markAttached() also unblocks a one-shot
+  // that is still waiting for the attach ack.
+  const endLoop = (err: Error): void => {
     closedByServer = true;
+    markAttached();
     if (waiter) {
-      waiter.reject(new Error("daemon closed the connection"));
+      waiter.reject(err);
       waiter = null;
     }
-  });
+  };
+  socket.on("close", () => endLoop(new Error("daemon closed the connection")));
+  socket.on("error", (err: Error) => endLoop(err));
 
   function handleEvent(msg: Record<string, unknown>): void {
     const type = String(msg.type ?? "");
-    if (type === "attached") {
-      output.write(`  · attached to session ${String(msg.sessionId)}\n`);
-      return;
-    }
-    if (type === "token") {
-      output.write(String(msg.delta ?? ""));
-      return;
-    }
-    if (type === "tool") {
-      const args = JSON.stringify(msg.args);
-      output.write(`\n  · tool ${String(msg.name)}(${truncate(args, 120)})\n`);
-      return;
-    }
-    if (type === "tool_result") {
-      return;
-    }
-    if (type === "final") {
-      output.write(`\n${String(msg.text ?? "")}\n\n`);
-      if (waiter) {
-        waiter.resolve();
-        waiter = null;
+    switch (type) {
+      case "attached":
+        if (interactive) output.write(`  · attached to session ${String(msg.sessionId)}\n`);
+        markAttached();
+        return;
+      case "token":
+        // One-shot prints the final answer once (matching the old in-process
+        // one-shot); it does not echo streamed partial tokens.
+        if (interactive) output.write(String(msg.delta ?? ""));
+        return;
+      case "tool": {
+        const args = JSON.stringify(msg.args);
+        output.write(`\n  · tool ${String(msg.name)}(${truncate(args, 120)})\n`);
+        return;
       }
-      return;
-    }
-    if (type === "error") {
-      const m = String(msg.message ?? "unknown error");
-      output.write(`\nerror: ${m}\n\n`);
-      if (waiter) {
-        waiter.resolve();
-        waiter = null;
+      case "tool_result":
+        return;
+      case "final":
+        output.write(interactive ? `\n${String(msg.text ?? "")}\n\n` : `${String(msg.text ?? "")}\n`);
+        settleWaiter();
+        return;
+      case "error":
+        output.write(`\nerror: ${String(msg.message ?? "unknown error")}\n\n`);
+        settleWaiter();
+        return;
+      case "status": {
+        const fields = (msg.fields ?? {}) as Record<string, string>;
+        for (const [k, v] of Object.entries(fields)) output.write(`  ${k.padEnd(14)} ${v}\n`);
+        settleWaiter();
+        return;
       }
-      return;
-    }
-    if (type === "status") {
-      const fields = (msg.fields ?? {}) as Record<string, string>;
-      for (const [k, v] of Object.entries(fields)) {
-        output.write(`  ${k.padEnd(14)} ${v}\n`);
-      }
-      if (waiter) {
-        waiter.resolve();
-        waiter = null;
-      }
-      return;
-    }
-    if (type === "usage") {
-      const rollup = msg.rollup as {
-        total: number;
-        ok: number;
-        failed: number;
-        bySkill: Array<{ skill: string; count: number }>;
-      } | null;
-      if (!rollup) {
-        output.write("  (no usage data)\n");
-      } else {
-        output.write(`  total ${rollup.total} (ok ${rollup.ok}, failed ${rollup.failed})\n`);
-        for (const row of rollup.bySkill) {
-          output.write(`  ${row.skill.padEnd(20)} ${row.count}\n`);
+      case "usage": {
+        const rollup = msg.rollup as {
+          total: number;
+          ok: number;
+          failed: number;
+          bySkill: Array<{ skill: string; count: number }>;
+        } | null;
+        if (!rollup) {
+          output.write("  (no usage data)\n");
+        } else {
+          output.write(`  total ${rollup.total} (ok ${rollup.ok}, failed ${rollup.failed})\n`);
+          for (const row of rollup.bySkill) {
+            output.write(`  ${row.skill.padEnd(20)} ${row.count}\n`);
+          }
         }
+        settleWaiter();
+        return;
       }
-      if (waiter) {
-        waiter.resolve();
-        waiter = null;
-      }
-      return;
-    }
-    if (type === "wiki_maintain") {
-      output.write(`${String(msg.text ?? "")}\n`);
-      if (waiter) {
-        waiter.resolve();
-        waiter = null;
-      }
-      return;
-    }
-    if (type === "dream") {
-      output.write(`${String(msg.text ?? "")}\n`);
-      if (waiter) {
-        waiter.resolve();
-        waiter = null;
-      }
-      return;
+      case "wiki_maintain":
+      case "dream":
+        output.write(`${String(msg.text ?? "")}\n`);
+        settleWaiter();
+        return;
     }
   }
 
+  // One-shot: send a single turn, print the final answer, detach. The daemon
+  // keeps running.
+  if (!interactive) {
+    try {
+      await attached;
+      if (!closedByServer) {
+        socket.write(JSON.stringify({ type: "user", text: opts.oneShot }) + "\n");
+        await new Promise<void>((resolve, reject) => {
+          waiter = { resolve, reject };
+        }).catch((err: Error) => {
+          output.write(`(${err.message})\n`);
+        });
+      }
+    } finally {
+      try {
+        socket.write(JSON.stringify({ type: "end" }) + "\n");
+      } catch {
+        // Connection may already be gone.
+      }
+      socket.end();
+    }
+    return;
+  }
+
+  // Interactive REPL loop.
   try {
     while (!closedByServer) {
       let line: string;
       try {
-        line = await rl.question("> ");
+        line = await rl!.question("> ");
       } catch {
         break;
       }
@@ -158,16 +183,8 @@ export async function socketAttachIO(opts: SocketAttachOpts): Promise<void> {
         trimmed === "/wiki_maintain" ? "wiki_maintain" :
         trimmed === "/dream" ? "dream" :
         null;
-      if (ctl) {
-        socket.write(JSON.stringify({ type: ctl }) + "\n");
-        await new Promise<void>((resolve, reject) => {
-          waiter = { resolve, reject };
-        }).catch((err: Error) => {
-          output.write(`(${err.message})\n`);
-        });
-        continue;
-      }
-      socket.write(JSON.stringify({ type: "user", text: trimmed }) + "\n");
+      const payload = ctl ? { type: ctl } : { type: "user", text: trimmed };
+      socket.write(JSON.stringify(payload) + "\n");
       await new Promise<void>((resolve, reject) => {
         waiter = { resolve, reject };
       }).catch((err: Error) => {
@@ -175,7 +192,7 @@ export async function socketAttachIO(opts: SocketAttachOpts): Promise<void> {
       });
     }
   } finally {
-    rl.close();
+    rl!.close();
     try {
       socket.write(JSON.stringify({ type: "end" }) + "\n");
     } catch {
