@@ -51,9 +51,9 @@ Today the CLI exits after a turn; openclaw is a daemon. Everything below depends
 
 ## Phase 2 — Tool parity for the daemon era (1–2 weeks)
 
-- [ ] **`skills-cron`** — register/list/cancel scheduled prompts. Persisted in SQLite; the gateway runs them.
-- [ ] **`skills-browser`** — Playwright/CDP wrapper. Two tiers: read-only (`open`, `read_page`, `screenshot`) and interactive (`click`, `fill`). Sandbox a profile dir under `MINICLAW_WORKSPACE`.
-- [ ] **`skills-canvas`** — server-rendered HTML scratchpad backed by the gateway's HTTP server (already in `io-http`). Live A2UI is Phase 6.
+- [x] **`cron` skill** (now a `SKILL.md` folder in `@miniclaw/agent-skills`) — register/list/cancel scheduled prompts. Persisted in SQLite; the gateway runs them.
+- [x] **`browser` skill** (now in `@miniclaw/agent-skills`, gated on the optional `playwright` peer) — Playwright/CDP wrapper. Two tiers: read-only (`open`, `read_page`, `screenshot`) and interactive (`click`, `fill`). Sandbox a profile dir under `MINICLAW_WORKSPACE`.
+- [x] **`canvas` skill** (now in `@miniclaw/agent-skills`) — server-rendered HTML scratchpad. Live A2UI is Phase 6.
 - [ ] **Prompt injection files** — `AGENTS.md` + `TOOLS.md` loaded by `context-windowed` into the system prompt. Skip `SOUL.md` until persona is a real ask.
 
 **Exit criteria:** the agent can schedule a cron job that opens a URL, screenshots it, and writes a note to memory.

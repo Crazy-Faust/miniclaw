@@ -5,40 +5,59 @@ import { OpenAIProvider } from "@miniclaw/llm-openai";
 
 import { buildLLM, buildSmallLLM } from "../src/llm.ts";
 import { buildToolGuard, describeSecurityMode } from "../src/security.ts";
-import { buildRegistry } from "../src/skills.ts";
+import { loadSkills } from "../src/skills.ts";
 import type { Config } from "../src/config.ts";
 
 // CLI is the only place where every concrete implementation is wired
 // together. These tests assert that composition happens correctly without
 // booting the REPL.
 
-describe("buildRegistry", () => {
-  it("registers every dependency-free built-in skill (no provider key set)", () => {
-    const r = buildRegistry({});
-    const names = r.list().map((s) => s.name).sort();
+describe("loadSkills", () => {
+  it("registers all built-in skill tools plus use_skill (no provider key set)", () => {
+    const { registry } = loadSkills({ env: {} });
+    // cron/sessions are runtime-bound (registered by main.ts, not loadSkills);
+    // web_search needs a key. browser_* are gated on the optional Playwright
+    // peer, so exclude them to keep this assertion environment-independent.
+    const names = registry
+      .list()
+      .map((s) => s.name)
+      .filter((n) => !n.startsWith("browser_"))
+      .sort();
     expect(names).toEqual([
       "apply_patch",
+      "canvas_create",
+      "canvas_delete",
+      "canvas_list",
+      "canvas_update",
       "fetch_url",
       "list_directory",
       "read_file",
       "search_memory",
       "shell",
       "sql_query",
+      "todo_write",
+      "use_skill",
       "write_file",
       "write_memory",
     ]);
   });
 
   it("adds web_search only when MINICLAW_SEARCH_API_KEY is set", () => {
-    const without = buildRegistry({});
-    const withKey = buildRegistry({ MINICLAW_SEARCH_API_KEY: "test-key" });
-    expect(without.list().map((s) => s.name)).not.toContain("web_search");
-    expect(withKey.list().map((s) => s.name)).toContain("web_search");
+    const without = loadSkills({ env: {} });
+    const withKey = loadSkills({ env: { MINICLAW_SEARCH_API_KEY: "test-key" } });
+    expect(without.registry.list().map((s) => s.name)).not.toContain("web_search");
+    expect(withKey.registry.list().map((s) => s.name)).toContain("web_search");
+  });
+
+  it("injects the bundled filesystem skill into the system-prompt catalog", () => {
+    const { catalog } = loadSkills({ env: {} });
+    expect(catalog).toContain("<available_skills>");
+    expect(catalog).toContain("<name>filesystem</name>");
   });
 
   it("produces a valid tool spec per skill (Anthropic-shaped JSON Schema object)", () => {
-    const specs = buildRegistry({}).toolSpecs();
-    expect(specs).toHaveLength(9);
+    const specs = loadSkills({ env: {} }).registry.toolSpecs();
+    expect(specs.length).toBeGreaterThanOrEqual(10);
     for (const s of specs) {
       expect(typeof s.name).toBe("string");
       expect(typeof s.description).toBe("string");
@@ -48,8 +67,8 @@ describe("buildRegistry", () => {
   });
 
   it("two registries are independent instances", () => {
-    const a = buildRegistry({});
-    const b = buildRegistry({});
+    const a = loadSkills({ env: {} }).registry;
+    const b = loadSkills({ env: {} }).registry;
     expect(a).not.toBe(b);
     expect(a.list().length).toBe(b.list().length);
   });

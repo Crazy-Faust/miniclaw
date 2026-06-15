@@ -2,7 +2,7 @@
 
 A lightweight, local-first AI agent. It maps natural-language requests to a small set of safe tools, runs them on your machine, and keeps an auditable trail of everything in SQLite.
 
-The repo is a **pnpm workspace** of 28 small packages. Every major subsystem (LLM provider, memory store, context strategy, skill, I/O, transport) is its own package behind an interface in `@miniclaw/core`, so each can be swapped or extended independently.
+The repo is a **pnpm workspace** of 18 small packages. Every major subsystem (LLM provider, memory store, context strategy, tools, I/O, transport) is its own package behind an interface in `@miniclaw/core`, so each can be swapped or extended independently. Capabilities are delivered as [agentskills.io](https://agentskills.io/)-standard `SKILL.md` folders: the built-ins ship in `@miniclaw/agent-skills`, and you can drop your own into `<workspace>/skills/` or `$MINICLAW_HOME/skills/`.
 
 You can use miniclaw three ways:
 
@@ -45,7 +45,7 @@ You need:
 
 Optional, only if you want the matching feature:
 
-- **Playwright** — required by `skills-browser`. `pnpm add -w playwright && pnpm exec playwright install chromium`. Not installed by default.
+- **Playwright** — required by the `browser` skill (in `@miniclaw/agent-skills`). `pnpm add -w playwright && pnpm exec playwright install chromium`. Not installed by default.
 
 Check:
 
@@ -385,7 +385,7 @@ Restart the agent (`/exit` and `pnpm dev` again, or `daemon stop` + `daemon star
 /compact        Summarize older turns to free up context budget.
 /dream          Review recent conversations and extract useful memories/tasks.
 /wiki_maintain  Drain queued memory-to-wiki maintenance jobs.
-/make_skill     Scaffold a brand-new skill package and register it.
+/make_skill     Scaffold a new SKILL.md skill folder.
 /exit, /quit    End the session.
 ```
 
@@ -393,43 +393,37 @@ Add your own by implementing `MetaCommand` from `@miniclaw/harness`. Meta comman
 
 ### `/make_skill` walkthrough
 
-Inside the REPL, type `/make_skill`. It prompts you for four things:
+Inside the REPL, type `/make_skill`. It scaffolds an [agentskills.io](https://agentskills.io/)-standard `SKILL.md` folder:
 
 ```
 > /make_skill
-Scaffolding a new skill. Press Ctrl-D / EOF at any prompt to cancel.
-Skill package name (kebab-case, e.g. fetch-url): fetch-url
-Tool name shown to the LLM (snake_case, e.g. fetch_url) [fetch_url]:
-One-line description: Fetch a URL and return the body.
-Parameters (e.g. 'url:string, timeout:number?'; blank for none): url:string, timeout:number?
+Scaffolding a new SKILL.md skill. Press Ctrl-D / EOF at any prompt to cancel.
+Skill name (kebab-case, e.g. pdf-tools): pdf-tools
+One-line description (what it does + when to use it): Extract text and fill forms in PDFs.
+Bundle a script? (none/python/node/bash) [none]: python
+Script file name [run.py]: extract.py
 
-Created packages/skills-fetch-url with:
-  package.json
-  tsconfig.json
-  src/skill.ts
-  src/index.ts
-  tests/skill.test.ts
-Registration: skills.ts updated, cli/package.json updated
-
-Next steps:
-  1. pnpm install
-  2. open packages/skills-fetch-url/src/skill.ts and implement execute()
-  3. pnpm typecheck && pnpm test
+Created <workspace>/skills/pdf-tools with:
+  SKILL.md
+  scripts/extract.py
+The skill is discovered automatically next time miniclaw starts
+(it scans <workspace>/skills and $MINICLAW_HOME/skills).
+Run its script with run_skill_script(skill="pdf-tools", script="scripts/extract.py").
+Open pdf-tools/SKILL.md and write the instructions.
 ```
 
-The generated `src/skill.ts` ships with a `return fail("not implemented")` body and a TODO comment listing what's on `args` and `ctx`. The CLI's `buildRegistry()` now includes your new skill — restart `pnpm dev` and it shows up under `/skills`.
+A skill is a folder with a `SKILL.md` (YAML frontmatter — `name`, `description` — plus markdown
+instructions) and, optionally, bundled `scripts/`, `references/`, and `assets/`. There is nothing to
+register: at startup miniclaw discovers every skill folder, injects each skill's name + description
+into the system prompt, and the model loads the full instructions on demand with the **`use_skill`**
+tool. Bundled scripts run through the sandboxed **`run_skill_script`** tool (interpreter chosen by
+extension — `.py`→python3, `.mjs`/`.js`→node, `.sh`→bash; the script path must stay inside the skill
+folder). Edit the generated `SKILL.md` to describe the task; no restart is needed to pick up edits to
+the body, only to discover a brand-new folder.
 
-**Parameter mini-language** for the wizard:
-
-| Form | Meaning |
-|---|---|
-| `name:string` | required string |
-| `name:number?` | optional number |
-| `name:boolean` | required boolean |
-| `name:string[]` | required array of strings |
-| `name:number[]?` | optional array of numbers |
-
-Comma-separated. Blank input means no parameters.
+Built-in skills (filesystem, shell, database, web, memory) are the same format — they live in
+`packages/agent-skills/skills/` and back their tools with an in-process `handler.ts` at the
+skill-folder root (so `scripts/` stays reserved for genuine standalone scripts).
 
 ---
 
@@ -443,7 +437,7 @@ Comma-separated. Blank input means no parameters.
 
 **The agent isn't calling tools** — make sure the model you're using supports tool calling. Claude Sonnet, GPT-4o, and Gemini 2.0 Flash all do. Older or stripped-down models may not.
 
-**`refused: bin 'X' is not on the allowlist`** — that's the shell skill's security guard working as intended. The allowlist is in `packages/skills-shell/src/security.ts` if you want to extend it (review carefully — these binaries run on your machine).
+**`refused: bin 'X' is not on the allowlist`** — that's the shell skill's security guard working as intended. The allowlist is in `packages/agent-skills/src/lib/shell-security.ts` if you want to extend it (review carefully — these binaries run on your machine).
 
 **`playwright is not installed`** — the `browser_*` skills need it. `pnpm add -w playwright && pnpm exec playwright install chromium`.
 
@@ -478,16 +472,11 @@ packages/
 ├── llm-gemini/           Google Gemini.
 │
 │  ── skills
-├── skills-shell/         shell exec with allowlist + arg guard + workspace sandbox.
-├── skills-db/            read-only sql_query against the local DB.
-├── skills-fs/            read_file, list_directory, write_file, apply_patch (sandboxed).
-├── skills-memory/        write_memory + search_memory.
-├── skills-web/           fetch_url + web_search (provider-keyed).
-├── skills-todo/          todo_write — persistent multi-step plan across turns.
-├── skills-sessions/      sessions_list/history/send/spawn — drives the gateway.
-├── skills-cron/          cron_add/list/remove/pause — read by the gateway scheduler.
-├── skills-canvas/        canvas_create/update/list/delete — HTML scratchpad pages.
-├── skills-browser/       browser_open/read_page/screenshot/click/fill — Playwright-backed.
+├── agent-skills/         agentskills.io SKILL.md system: discovery, catalog, use_skill,
+│                         run_skill_script, + ALL bundled built-ins (filesystem, shell,
+│                         database, web, memory, cron, sessions, canvas, todo, browser).
+│                         Runtime-bound ones (cron, sessions) are wired via the ./runtime
+│                         subpath; browser is gated on the optional playwright peer.
 │
 │  ── context strategies
 ├── context-windowed/     Sliding window + wiki-first memory index retrieval +
@@ -528,7 +517,7 @@ Rule of thumb: if you're not in `cli`, you should not import another package's c
 
 ## How to add a new...
 
-- **Skill**: create `packages/skills-<name>/`, depend on `@miniclaw/core` + `zod`, export a `Skill`. Register it in `cli/src/skills.ts`. The `/make_skill` wizard does most of the boilerplate.
+- **Skill**: run `/make_skill` (or just drop a folder) to create an [agentskills.io](https://agentskills.io/) `SKILL.md` skill under `<workspace>/skills/` or `$MINICLAW_HOME/skills/` — it's discovered automatically, with no registration. To add an in-process built-in *tool*, create `packages/agent-skills/skills/<name>/` (`SKILL.md` + `handler.ts`) and add one line to `packages/agent-skills/src/builtins/index.ts`.
 - **LLM provider**: create `packages/llm-<name>/`, implement `LLMProvider`. Add a case in `cli/src/llm.ts` and an entry in `cli/src/config.ts`'s defaults.
 - **Memory backend**: create `packages/memory-<name>/`, implement `MemoryStore` (and optionally `KnowledgeStore`, `WikiStore`, `MemoryMaintenanceQueue`, `ConversationStore`, `AuditSink`, `SessionStore`, `CronStore`, `ChannelAllowlist`, `PairingStore`). Swap construction in `cli/src/main.ts`.
 - **Context strategy**: create `packages/context-<name>/`, implement `ContextManager`. Swap construction in `cli/src/main.ts`.
@@ -543,8 +532,8 @@ Rule of thumb: if you're not in `cli`, you should not import another package's c
 pnpm test                              # run all tests from root
 pnpm typecheck                         # typecheck the whole workspace
 pnpm -r typecheck                      # typecheck each package independently
-pnpm --filter @miniclaw/skills-shell test       # one package's tests
-pnpm --filter @miniclaw/skills-shell typecheck  # one package's types
+pnpm --filter @miniclaw/agent-skills test       # one package's tests
+pnpm --filter @miniclaw/agent-skills typecheck  # one package's types
 ```
 
 Per-package commands let two people work in two different packages without rebuilding the world.

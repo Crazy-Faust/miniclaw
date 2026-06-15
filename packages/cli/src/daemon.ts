@@ -24,16 +24,15 @@ import {
   MemoryWikiWorker,
   startWikiBrowserServer,
 } from "@miniclaw/memory-wiki";
-import { createSessionsSkills } from "@miniclaw/skills-sessions";
-import { createCronSkills } from "@miniclaw/skills-cron";
-import { createCanvasSkills, CanvasStore } from "@miniclaw/skills-canvas";
+import { createSessionsSkills } from "@miniclaw/agent-skills/runtime";
+import { createCronSkills } from "@miniclaw/agent-skills/runtime";
 import { DiscordTransport } from "@miniclaw/transport-discord";
 import type { Transport } from "@miniclaw/core";
 
 import { buildLLM, buildSmallLLM } from "./llm.ts";
 import { trackLLMUsage } from "./llm-usage.ts";
 import { buildToolGuard, describeSecurityMode } from "./security.ts";
-import { buildRegistry } from "./skills.ts";
+import { loadSkills } from "./skills.ts";
 import type { Config } from "./config.ts";
 
 // Spawn the daemon child by re-entering the CLI's main entry point so its
@@ -121,7 +120,10 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
     : undefined;
   const toolGuard = buildToolGuard(config, smallLLM);
   const summarizerLLM = smallLLM ?? llm;
-  const registry = buildRegistry();
+  const { registry, catalog: skillCatalog } = loadSkills({
+    home: config.home,
+    workspaceRoot: config.workspaceRoot,
+  });
   const wikiMaintainer = new MemoryWikiMaintainer({
     llm: smallLLM ?? llm,
     queue: store,
@@ -151,6 +153,7 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
         summarizer: summarizerLLM,
         knowledge: store,
         workspaceRoot: config.workspaceRoot,
+        extraSystemPrompt: skillCatalog,
       });
       return new Agent({
         llm,
@@ -171,10 +174,6 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
     if (!registry.has(sk.name)) registry.register(sk);
   }
   for (const sk of createCronSkills(store)) {
-    if (!registry.has(sk.name)) registry.register(sk);
-  }
-  const canvasStore = new CanvasStore();
-  for (const sk of createCanvasSkills({ store: canvasStore })) {
     if (!registry.has(sk.name)) registry.register(sk);
   }
   for (const sk of createWikiSkills({ wiki: store, maintainer: wikiMaintainer })) {

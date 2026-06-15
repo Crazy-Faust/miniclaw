@@ -1,148 +1,106 @@
-import { paramToZod, type ParamSpec } from "./parser.ts";
+// Templates for the agentskills.io SKILL.md scaffolder. A scaffolded skill is
+// a folder with a SKILL.md (metadata + instructions) and, optionally, a bundled
+// script under scripts/ that the agent runs with run_skill_script.
+
+export type ScriptLanguage = "python" | "node" | "bash";
+
+export interface SkillScriptSpec {
+  language: ScriptLanguage;
+  /** File name within scripts/, e.g. "run.py". */
+  fileName: string;
+}
 
 export interface SkillSpec {
-  /** kebab-case package suffix; final package name is "@miniclaw/skills-<pkgName>" */
-  pkgName: string;
-  /** snake_case identifier shown to the LLM as the tool name */
-  toolName: string;
-  /** one-line human description */
+  /** kebab-case skill name; also the folder name and the SKILL.md `name`. */
+  name: string;
+  /** One-line description for the frontmatter (what it does + when to use it). */
   description: string;
-  params: ParamSpec[];
+  /** Optional bundled script. */
+  script?: SkillScriptSpec;
 }
 
-// ---- Templates ----
-
-export function packageJsonContent(spec: SkillSpec): string {
-  return JSON.stringify(
-    {
-      name: `@miniclaw/skills-${spec.pkgName}`,
-      version: "0.1.0",
-      private: true,
-      type: "module",
-      description: spec.description,
-      exports: { ".": "./src/index.ts" },
-      types: "./src/index.ts",
-      scripts: {
-        typecheck: "tsc --noEmit",
-        test: "vitest run",
-      },
-      dependencies: {
-        "@miniclaw/core": "workspace:*",
-        zod: "^3.23.8",
-      },
-    },
-    null,
-    2,
-  ) + "\n";
-}
-
-export function tsconfigContent(): string {
-  return JSON.stringify(
-    {
-      extends: "../../tsconfig.base.json",
-      include: ["src/**/*.ts", "tests/**/*.ts"],
-    },
-    null,
-    2,
-  ) + "\n";
-}
-
-export function skillTsContent(spec: SkillSpec): string {
-  const exportName = camelize(spec.toolName) + "Skill";
-  const paramLines = spec.params.length === 0
-    ? "  // No parameters. Add fields here if you need them."
-    : spec.params.map((p) => `  ${p.name}: ${paramToZod(p)},`).join("\n");
-
-  const argsList = spec.params.length === 0
-    ? "  // (no parameters)"
-    : spec.params
-        .map((p) => {
-          const ty =
-            p.type === "string" ? "string"
-            : p.type === "number" ? "number"
-            : p.type === "boolean" ? "boolean"
-            : p.type === "string[]" ? "string[]"
-            : "number[]";
-          const t = p.optional ? `${ty} | undefined` : ty;
-          return `  //   args.${p.name}: ${t}`;
-        })
-        .join("\n");
-
-  return `import { z } from "zod";
-import { fail, ok, type Skill } from "@miniclaw/core";
-
-const Params = z.object({
-${paramLines}
-});
-
-export const ${exportName}: Skill<z.infer<typeof Params>> = {
-  name: ${JSON.stringify(spec.toolName)},
-  description: ${JSON.stringify(spec.description)},
-  parameters: Params,
-  // Set this to true if the skill performs sensitive actions. The agent
-  // will gate execution behind ctx.io.confirm (fails closed in one-shot mode).
-  // requiresConfirmation: false,
-  async execute(args, ctx) {
-    // TODO: implement.
-    //
-    // Inputs (from args):
-${argsList}
-    //
-    // Available on ctx:
-    //   ctx.memory        — MemoryStore (add/search/listRecent)
-    //   ctx.audit         — AuditSink — usually unneeded; the agent logs
-    //                        every call automatically.
-    //   ctx.dbPath        — path to the SQLite DB (read-only is preferred).
-    //   ctx.workspaceRoot — filesystem sandbox root (string | undefined).
-    //
-    // Return:
-    //   ok("text shown to the model")  on success
-    //   fail("reason")                  on failure
-    void args; void ctx;
-    return fail("not implemented");
-  },
-};
-`;
-}
-
-export function indexTsContent(spec: SkillSpec): string {
-  const exportName = camelize(spec.toolName) + "Skill";
-  return `export { ${exportName} } from "./skill.ts";\n`;
-}
-
-export function testTsContent(spec: SkillSpec): string {
-  const exportName = camelize(spec.toolName) + "Skill";
-  return `import { describe, expect, it } from "vitest";
-import type { SkillContext } from "@miniclaw/core";
-import { ${exportName} } from "../src/index.ts";
-
-const stubCtx: SkillContext = {
-  memory: { add: () => 0, search: () => [], listRecent: () => [] },
-  audit: { logToolCall: () => {} },
-  dbPath: "/dev/null",
+const EXT_BY_LANGUAGE: Record<ScriptLanguage, string> = {
+  python: ".py",
+  node: ".mjs",
+  bash: ".sh",
 };
 
-describe(${JSON.stringify(exportName)}, () => {
-  it("has the expected name and description", () => {
-    expect(${exportName}.name).toBe(${JSON.stringify(spec.toolName)});
-    expect(${exportName}.description).toBeTruthy();
-  });
+export function defaultScriptFileName(language: ScriptLanguage): string {
+  return `run${EXT_BY_LANGUAGE[language]}`;
+}
 
-  it.todo("executes successfully with valid input");
-  it.todo("validates input via zod");
-  it.todo("handles error cases");
+export function skillMdContent(spec: SkillSpec): string {
+  const scriptSection = spec.script
+    ? `\n## Scripts\n\n` +
+      `Run the bundled script with the \`run_skill_script\` tool:\n\n` +
+      "```\n" +
+      `run_skill_script(skill="${spec.name}", script="scripts/${spec.script.fileName}")\n` +
+      "```\n"
+    : "";
 
-  // Stop unused-import noise while the suite is full of .todos.
-  void stubCtx;
-});
-`;
+  return `---
+name: ${spec.name}
+description: ${spec.description}
+---
+
+# ${titleCase(spec.name)}
+
+<!-- Describe what this skill does and, step by step, how to do the task.
+     Keep this file focused; move long reference material into references/. -->
+
+## When to use
+
+Use this skill when ...
+
+## Steps
+
+1. ...
+2. ...
+${scriptSection}`;
+}
+
+export function scriptStubContent(language: ScriptLanguage): string {
+  if (language === "python") {
+    return [
+      "#!/usr/bin/env python3",
+      '"""Bundled skill script. Reads argv and prints a result."""',
+      "import sys",
+      "",
+      "",
+      "def main(argv: list[str]) -> int:",
+      '    print("hello from skill script", *argv)',
+      "    return 0",
+      "",
+      "",
+      'if __name__ == "__main__":',
+      "    raise SystemExit(main(sys.argv[1:]))",
+      "",
+    ].join("\n");
+  }
+  if (language === "node") {
+    return [
+      "#!/usr/bin/env node",
+      "// Bundled skill script. Reads argv and prints a result.",
+      "const args = process.argv.slice(2);",
+      'console.log("hello from skill script", ...args);',
+      "",
+    ].join("\n");
+  }
+  return [
+    "#!/usr/bin/env bash",
+    "# Bundled skill script. Reads argv and prints a result.",
+    "set -euo pipefail",
+    'echo "hello from skill script $*"',
+    "",
+  ].join("\n");
 }
 
 // ---- Helpers ----
 
-export function camelize(s: string): string {
-  const parts = s.split(/[_-]/).filter(Boolean);
-  if (parts.length === 0) return s;
-  return parts[0]!.toLowerCase() +
-    parts.slice(1).map((p) => p[0]!.toUpperCase() + p.slice(1).toLowerCase()).join("");
+export function titleCase(kebab: string): string {
+  return kebab
+    .split("-")
+    .filter(Boolean)
+    .map((p) => p[0]!.toUpperCase() + p.slice(1))
+    .join(" ");
 }

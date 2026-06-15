@@ -28,16 +28,7 @@ flowchart TB
   memoryWiki["@miniclaw/memory-wiki<br/>SQLite LLM wiki maintainer"]
   wikiBrowser["@miniclaw/memory-wiki<br/>local wiki browser"]
 
-  skillsFs["@miniclaw/skills-fs"]
-  skillsShell["@miniclaw/skills-shell"]
-  skillsDb["@miniclaw/skills-db"]
-  skillsMemory["@miniclaw/skills-memory"]
-  skillsWeb["@miniclaw/skills-web"]
-  skillsBrowser["@miniclaw/skills-browser"]
-  skillsCron["@miniclaw/skills-cron"]
-  skillsSessions["@miniclaw/skills-sessions"]
-  skillsCanvas["@miniclaw/skills-canvas"]
-  skillsTodo["@miniclaw/skills-todo"]
+  agentSkills["@miniclaw/agent-skills<br/>SKILL.md discovery + catalog + use_skill +<br/>run_skill_script + all built-ins (filesystem,<br/>shell, database, web, memory, cron, sessions,<br/>canvas, todo, browser)"]
 
   discord["@miniclaw/transport-discord"]
 
@@ -62,18 +53,8 @@ flowchart TB
   memoryWiki --> core
   wikiBrowser --> core
 
-  skillsFs --> core
-  skillsShell --> core
-  skillsDb --> core
-  skillsMemory --> core
-  skillsWeb --> core
-  skillsBrowser --> core
-  skillsCanvas --> core
-  skillsTodo --> core
-  skillsCron --> core
-  skillsCron --> gateway
-  skillsSessions --> core
-  skillsSessions --> gateway
+  agentSkills --> core
+  agentSkills --> gateway
 
   discord --> core
   discord --> gateway
@@ -90,14 +71,7 @@ flowchart TB
   cli --> memorySqlite
   cli --> memoryInmemory
   cli --> memoryWiki
-  cli --> skillsFs
-  cli --> skillsShell
-  cli --> skillsDb
-  cli --> skillsMemory
-  cli --> skillsWeb
-  cli --> skillsCron
-  cli --> skillsSessions
-  cli --> skillsCanvas
+  cli --> agentSkills
   cli --> discord
 ```
 
@@ -240,11 +214,11 @@ flowchart TB
   exec --> audit
   audit --> result
 
-  fs["skills-fs<br/>workspace realpath checks<br/>size caps<br/>write/patch require confirmation"]
-  shell["skills-shell<br/>binary allowlist<br/>argv spawn with shell=false<br/>path-like args checked lexically"]
-  db["skills-db<br/>readonly SQLite handle<br/>SELECT/WITH guard<br/>row cap"]
-  web["skills-web<br/>domain allowlist<br/>private host literal checks<br/>byte/time caps"]
-  browser["skills-browser<br/>lazy Playwright driver<br/>interactive click/fill confirmation"]
+  fs["filesystem skill<br/>workspace realpath checks<br/>size caps<br/>write/patch require confirmation"]
+  shell["shell skill<br/>binary allowlist<br/>argv spawn with shell=false<br/>path-like args checked lexically"]
+  db["database skill<br/>readonly SQLite handle<br/>SELECT/WITH guard<br/>row cap"]
+  web["web skill<br/>domain allowlist<br/>private host literal checks<br/>byte/time caps"]
+  browser["browser skill<br/>lazy Playwright driver<br/>interactive click/fill confirmation"]
 
   exec --> fs
   exec --> shell

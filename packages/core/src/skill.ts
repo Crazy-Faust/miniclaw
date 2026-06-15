@@ -12,13 +12,13 @@ export interface SkillContext {
   dbPath: string;
   /**
    * Optional filesystem sandbox root. Skills that touch the filesystem
-   * (skills-fs, optionally skills-shell) refuse to operate on paths that
+   * (the filesystem skill, optionally shell) refuse to operate on paths that
    * don't resolve under this directory. Unset = no sandbox (legacy behavior).
    */
   workspaceRoot?: string;
   /**
    * Optional incremental-output sink. Skills with long-running output
-   * (notably skills-shell) call this as bytes arrive so a UI can show
+   * (notably the shell skill) call this as bytes arrive so a UI can show
    * progress before the skill returns. The chunk passed is exactly what
    * the underlying process produced; the receiver decides how to render
    * it (line buffering, ANSI handling, etc.).

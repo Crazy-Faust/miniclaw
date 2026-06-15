@@ -7,7 +7,7 @@ import {
   type ToolSpec,
 } from "@miniclaw/core";
 import { InMemoryStore } from "@miniclaw/memory-inmemory";
-import { searchMemorySkill, writeMemorySkill } from "@miniclaw/skills-memory";
+import { searchMemorySkill, writeMemorySkill } from "@miniclaw/agent-skills";
 import {
   buildDreamTranscript,
   createDreamSkill,

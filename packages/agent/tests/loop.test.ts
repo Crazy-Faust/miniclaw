@@ -10,7 +10,7 @@ import {
 } from "@miniclaw/core";
 import { WindowedContextManager } from "@miniclaw/context-windowed";
 import { SqliteStore } from "@miniclaw/memory-sqlite";
-import { searchMemorySkill, writeMemorySkill } from "@miniclaw/skills-memory";
+import { searchMemorySkill, writeMemorySkill } from "@miniclaw/agent-skills";
 
 import { Agent } from "../src/index.ts";
 

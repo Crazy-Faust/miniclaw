@@ -47,6 +47,12 @@ export interface WindowedContextOpts {
   promptFileMaxBytes?: number;
   /** Optional wiki-backed long-term memory search. Wiki pages are preferred. */
   knowledge?: KnowledgeStore;
+  /**
+   * Extra text appended verbatim to the base system prompt — used to inject the
+   * agent-skills catalog (the `<available_skills>` section). Read once at
+   * construction, like the prompt-injection files.
+   */
+  extraSystemPrompt?: string;
 }
 
 /**
@@ -97,7 +103,8 @@ export class WindowedContextManager implements ContextManager {
     const injected = opts.workspaceRoot
       ? loadPromptInjectionFiles(opts.workspaceRoot, opts.promptFiles, opts.promptFileMaxBytes)
       : "";
-    this.basePrompt = injected ? `${SYSTEM_PROMPT}\n\n${injected}` : SYSTEM_PROMPT;
+    const withFiles = injected ? `${SYSTEM_PROMPT}\n\n${injected}` : SYSTEM_PROMPT;
+    this.basePrompt = withFiles + (opts.extraSystemPrompt ?? "");
   }
 
   prepare(userMsg: string): { system: string; messages: Message[] } {

@@ -1,130 +1,52 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import {
-  indexTsContent,
-  packageJsonContent,
-  skillTsContent,
-  testTsContent,
-  tsconfigContent,
-  camelize,
-  type SkillSpec,
-} from "./templates.ts";
-
-// ---- Repo discovery ----
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { scriptStubContent, skillMdContent, type SkillSpec } from "./templates.ts";
 
 /**
- * Walk up from `start` until we find a directory containing pnpm-workspace.yaml.
- * That's the repo root. Throws if not found.
+ * Default location to scaffold into: the workspace's `skills/` directory, which
+ * the loader scans at startup. (It also scans `$MINICLAW_HOME/skills`; move the
+ * folder there for cross-project use.)
  */
-export function findRepoRoot(start: string): string {
-  let dir = start;
-  for (let i = 0; i < 16; i++) {
-    if (existsSync(join(dir, "pnpm-workspace.yaml"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  throw new Error(`could not find pnpm-workspace.yaml starting from ${start}`);
+export function defaultSkillsDir(env: NodeJS.ProcessEnv = process.env): string {
+  const workspace = resolve(env.MINICLAW_WORKSPACE ?? process.cwd());
+  return join(workspace, "skills");
 }
-
-export function defaultRepoRoot(): string {
-  // cli/src/make-skill/files.ts → walk up to find pnpm-workspace.yaml.
-  return findRepoRoot(dirname(fileURLToPath(import.meta.url)));
-}
-
-// ---- Package creation ----
 
 export interface CreateResult {
-  packageDir: string;
+  skillDir: string;
   files: string[];
 }
 
 /**
- * Create packages/skills-<pkgName>/ with the templated files.
- * Throws if the directory already exists (no clobbering by default).
+ * Create `<skillsDir>/<name>/` with a SKILL.md and, if requested, a bundled
+ * script under scripts/. Throws if the directory already exists (no clobber).
  */
-export function createSkillPackage(spec: SkillSpec, repoRoot: string): CreateResult {
-  const packageDir = join(repoRoot, "packages", `skills-${spec.pkgName}`);
-  if (existsSync(packageDir)) {
-    throw new Error(`directory already exists: ${packageDir}`);
+export function createSkillFolder(spec: SkillSpec, skillsDir: string): CreateResult {
+  const skillDir = join(skillsDir, spec.name);
+  if (existsSync(skillDir)) {
+    throw new Error(`directory already exists: ${skillDir}`);
   }
-  mkdirSync(join(packageDir, "src"), { recursive: true });
-  mkdirSync(join(packageDir, "tests"), { recursive: true });
+  mkdirSync(skillDir, { recursive: true });
 
-  const files: Array<[string, string]> = [
-    ["package.json", packageJsonContent(spec)],
-    ["tsconfig.json", tsconfigContent()],
-    ["src/skill.ts", skillTsContent(spec)],
-    ["src/index.ts", indexTsContent(spec)],
-    ["tests/skill.test.ts", testTsContent(spec)],
-  ];
+  const files: Array<[string, string]> = [["SKILL.md", skillMdContent(spec)]];
+  if (spec.script) {
+    mkdirSync(join(skillDir, "scripts"), { recursive: true });
+    files.push([`scripts/${spec.script.fileName}`, scriptStubContent(spec.script.language)]);
+  }
+
   for (const [rel, content] of files) {
-    writeFileSync(join(packageDir, rel), content);
-  }
-  return { packageDir, files: files.map(([rel]) => rel) };
-}
-
-// ---- CLI registration patcher ----
-
-/**
- * Patch cli/src/skills.ts: add an import for the new package and a
- * registry.register(...) call. Idempotent — won't double-register.
- */
-export function patchCliSkills(spec: SkillSpec, repoRoot: string): { changed: boolean } {
-  const skillsPath = join(repoRoot, "packages", "cli", "src", "skills.ts");
-  if (!existsSync(skillsPath)) throw new Error(`missing ${skillsPath}`);
-
-  const src = readFileSync(skillsPath, "utf8");
-  const pkg = `@miniclaw/skills-${spec.pkgName}`;
-  const exportName = camelize(spec.toolName) + "Skill";
-
-  if (src.includes(pkg)) return { changed: false };
-
-  // 1) Append a new import line after the last existing `@miniclaw/skills-*` import.
-  const importLines = src.split("\n");
-  let lastImportIdx = -1;
-  for (let i = 0; i < importLines.length; i++) {
-    if (/^import .* from "@miniclaw\/skills-/.test(importLines[i] ?? "")) {
-      lastImportIdx = i;
+    const abs = join(skillDir, rel);
+    writeFileSync(abs, content);
+    if (rel.startsWith("scripts/")) {
+      // Best-effort: make bundled scripts executable so they can also be run
+      // directly outside the run_skill_script sandbox during development.
+      try {
+        chmodSync(abs, 0o755);
+      } catch {
+        // non-fatal (e.g. on filesystems without POSIX modes)
+      }
     }
   }
-  if (lastImportIdx === -1) {
-    throw new Error("could not find any @miniclaw/skills-* import to anchor against");
-  }
-  const newImport = `import { ${exportName} } from "${pkg}";`;
-  importLines.splice(lastImportIdx + 1, 0, newImport);
 
-  // 2) Append a register call before the final `return registry;`.
-  let patched = importLines.join("\n");
-  const returnRegex = /(\n\s*return\s+registry\s*;)/;
-  const m = returnRegex.exec(patched);
-  if (!m) throw new Error("could not find 'return registry;' in skills.ts");
-  patched = patched.replace(returnRegex, `\n  registry.register(${exportName});$1`);
-
-  writeFileSync(skillsPath, patched);
-  return { changed: true };
-}
-
-/**
- * Patch cli/package.json: add the new workspace package as a dependency.
- * Idempotent.
- */
-export function patchCliPackageJson(spec: SkillSpec, repoRoot: string): { changed: boolean } {
-  const pkgPath = join(repoRoot, "packages", "cli", "package.json");
-  const json = JSON.parse(readFileSync(pkgPath, "utf8")) as {
-    dependencies?: Record<string, string>;
-  };
-  const depName = `@miniclaw/skills-${spec.pkgName}`;
-  if (json.dependencies && json.dependencies[depName]) return { changed: false };
-
-  const deps = json.dependencies ?? {};
-  deps[depName] = "workspace:*";
-  // Re-sort to keep the file tidy.
-  const sorted = Object.fromEntries(
-    Object.entries(deps).sort(([a], [b]) => a.localeCompare(b)),
-  );
-  json.dependencies = sorted;
-  writeFileSync(pkgPath, JSON.stringify(json, null, 2) + "\n");
-  return { changed: true };
+  return { skillDir, files: files.map(([rel]) => rel) };
 }

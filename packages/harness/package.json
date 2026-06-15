@@ -17,8 +17,8 @@
     "@miniclaw/core": "workspace:*"
   },
   "devDependencies": {
+    "@miniclaw/agent-skills": "workspace:*",
     "@miniclaw/context-windowed": "workspace:*",
-    "@miniclaw/memory-sqlite": "workspace:*",
-    "@miniclaw/skills-memory": "workspace:*"
+    "@miniclaw/memory-sqlite": "workspace:*"
   }
 }

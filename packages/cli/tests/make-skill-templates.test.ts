@@ -1,95 +1,64 @@
 import { describe, expect, it } from "vitest";
 import {
-  camelize,
-  indexTsContent,
-  packageJsonContent,
-  skillTsContent,
-  testTsContent,
-  tsconfigContent,
+  defaultScriptFileName,
+  scriptStubContent,
+  skillMdContent,
+  titleCase,
   type SkillSpec,
 } from "../src/make-skill/index.ts";
 
 function makeSpec(over: Partial<SkillSpec> = {}): SkillSpec {
-  return {
-    pkgName: "fetch-url",
-    toolName: "fetch_url",
-    description: "Fetch a URL.",
-    params: [
-      { name: "url", type: "string", optional: false },
-      { name: "timeout", type: "number", optional: true },
-    ],
-    ...over,
-  };
+  return { name: "pdf-tools", description: "Work with PDFs.", ...over };
 }
 
-describe("camelize", () => {
-  it("turns snake_case into camelCase", () => {
-    expect(camelize("fetch_url")).toBe("fetchUrl");
-    expect(camelize("a")).toBe("a");
-    expect(camelize("a_b_c")).toBe("aBC");
+describe("skillMdContent", () => {
+  it("emits YAML frontmatter with the name and description", () => {
+    const md = skillMdContent(makeSpec());
+    expect(md.startsWith("---\n")).toBe(true);
+    expect(md).toContain("name: pdf-tools");
+    expect(md).toContain("description: Work with PDFs.");
+    expect(md).toContain("# Pdf Tools");
   });
-  it("handles kebab-case too", () => {
-    expect(camelize("fetch-url")).toBe("fetchUrl");
+
+  it("adds a scripts section when a script is bundled", () => {
+    const md = skillMdContent(makeSpec({ script: { language: "python", fileName: "extract.py" } }));
+    expect(md).toContain("## Scripts");
+    expect(md).toContain("run_skill_script");
+    expect(md).toContain('script="scripts/extract.py"');
+  });
+
+  it("omits the scripts section when there is no script", () => {
+    expect(skillMdContent(makeSpec())).not.toContain("run_skill_script");
   });
 });
 
-describe("packageJsonContent", () => {
-  it("emits a parseable JSON with the expected name and deps", () => {
-    const j = JSON.parse(packageJsonContent(makeSpec()));
-    expect(j.name).toBe("@miniclaw/skills-fetch-url");
-    expect(j.dependencies["@miniclaw/core"]).toBe("workspace:*");
-    expect(j.dependencies.zod).toBeTruthy();
-    expect(j.scripts.test).toBe("vitest run");
+describe("scriptStubContent", () => {
+  it("emits a python stub with a shebang and main()", () => {
+    const s = scriptStubContent("python");
+    expect(s).toContain("#!/usr/bin/env python3");
+    expect(s).toContain("def main(");
+  });
+
+  it("emits a node stub that reads argv", () => {
+    expect(scriptStubContent("node")).toContain("process.argv");
+  });
+
+  it("emits a bash stub", () => {
+    expect(scriptStubContent("bash")).toContain("#!/usr/bin/env bash");
   });
 });
 
-describe("tsconfigContent", () => {
-  it("extends the workspace base config", () => {
-    const j = JSON.parse(tsconfigContent());
-    expect(j.extends).toBe("../../tsconfig.base.json");
-    expect(j.include).toContain("src/**/*.ts");
+describe("defaultScriptFileName", () => {
+  it("maps the language to a sensible default file name", () => {
+    expect(defaultScriptFileName("python")).toBe("run.py");
+    expect(defaultScriptFileName("node")).toBe("run.mjs");
+    expect(defaultScriptFileName("bash")).toBe("run.sh");
   });
 });
 
-describe("skillTsContent", () => {
-  it("includes the expected exports, name, and description", () => {
-    const src = skillTsContent(makeSpec());
-    expect(src).toContain("export const fetchUrlSkill");
-    expect(src).toContain('name: "fetch_url"');
-    expect(src).toContain('description: "Fetch a URL."');
-  });
-
-  it("translates each param into a zod field", () => {
-    const src = skillTsContent(makeSpec());
-    expect(src).toMatch(/url:\s*z\.string\(\)\.describe/);
-    expect(src).toMatch(/timeout:\s*z\.number\(\)\.optional\(\)\.describe/);
-  });
-
-  it("emits a placeholder body that returns fail('not implemented')", () => {
-    const src = skillTsContent(makeSpec());
-    expect(src).toContain('return fail("not implemented")');
-  });
-
-  it("handles the zero-params case without breaking the file", () => {
-    const src = skillTsContent(makeSpec({ params: [] }));
-    expect(src).toContain("// No parameters");
-    expect(src).toContain("export const fetchUrlSkill");
-  });
-});
-
-describe("indexTsContent", () => {
-  it("re-exports the named skill", () => {
-    expect(indexTsContent(makeSpec())).toBe(
-      'export { fetchUrlSkill } from "./skill.ts";\n',
-    );
-  });
-});
-
-describe("testTsContent", () => {
-  it("imports the skill and asserts its name", () => {
-    const src = testTsContent(makeSpec());
-    expect(src).toContain('import { fetchUrlSkill }');
-    expect(src).toMatch(/expect\(fetchUrlSkill\.name\)\.toBe\("fetch_url"\)/);
-    expect(src).toContain("it.todo");
+describe("titleCase", () => {
+  it("turns a kebab-case name into a title", () => {
+    expect(titleCase("pdf-tools")).toBe("Pdf Tools");
+    expect(titleCase("x")).toBe("X");
   });
 });

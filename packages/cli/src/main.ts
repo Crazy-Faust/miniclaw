@@ -39,9 +39,8 @@ import {
   startWikiBrowserServer,
   type WikiBrowserHandle,
 } from "@miniclaw/memory-wiki";
-import { createSessionsSkills } from "@miniclaw/skills-sessions";
-import { createCronSkills } from "@miniclaw/skills-cron";
-import { createCanvasSkills, CanvasStore } from "@miniclaw/skills-canvas";
+import { createSessionsSkills } from "@miniclaw/agent-skills/runtime";
+import { createCronSkills } from "@miniclaw/agent-skills/runtime";
 import { Gateway } from "@miniclaw/gateway";
 
 import { parseArgs, USAGE, type Mode } from "./argv.ts";
@@ -51,7 +50,7 @@ import { buildLLM, buildSmallLLM } from "./llm.ts";
 import { trackLLMUsage } from "./llm-usage.ts";
 import { buildToolGuard, describeSecurityMode } from "./security.ts";
 import { makeSkillCommand } from "./make-skill/index.ts";
-import { buildRegistry } from "./skills.ts";
+import { loadSkills } from "./skills.ts";
 import { runDaemon } from "./daemon.ts";
 import { runChat } from "./chat.ts";
 import { runInstall } from "./install.ts";
@@ -108,7 +107,10 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
   const wikiStore = store instanceof SqliteStore ? store : null;
 
   const convId = store.newConversation();
-  const registry = buildRegistry();
+  const { registry, catalog: skillCatalog, skills: agentSkillList } = loadSkills({
+    home: config.home,
+    workspaceRoot: config.workspaceRoot,
+  });
   const llm = trackLLMUsage(
     buildLLM(config),
     wikiStore ?? undefined,
@@ -144,7 +146,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
     : null;
 
   const context: ContextManager = stateless
-    ? new StatelessContextManager()
+    ? new StatelessContextManager({ extraSystemPrompt: skillCatalog })
     : new CompactingContextManager({
         memory: store,
         conversations: store,
@@ -152,6 +154,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
         summarizer: summarizerLLM,
         knowledge: wikiStore ?? undefined,
         workspaceRoot: config.workspaceRoot,
+        extraSystemPrompt: skillCatalog,
       });
 
   const oneShotIO = oneShot;
@@ -192,10 +195,6 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
     registry.register(sk);
   }
   for (const sk of createCronSkills(store)) {
-    registry.register(sk);
-  }
-  const canvasStore = new CanvasStore();
-  for (const sk of createCanvasSkills({ store: canvasStore })) {
     registry.register(sk);
   }
   if (wikiStore) {
@@ -253,7 +252,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
     ? []
     : [
         exitCommand(),
-        skillsCommand(registry),
+        skillsCommand(registry, agentSkillList),
         memoriesCommand(store),
         dreamCommand(controls),
         wikiMaintainCommand(controls),

@@ -29,7 +29,7 @@ export interface Config {
   securityMode: SecurityMode;
   /** Local authenticated browser UI for SQLite wiki pages. */
   wikiBrowser: WikiBrowserConfig;
-  /** Filesystem sandbox root for skills-fs / skills-shell. Defaults to process.cwd(). */
+  /** Filesystem sandbox root for the filesystem and shell skills. Defaults to process.cwd(). */
   workspaceRoot: string;
 }
 

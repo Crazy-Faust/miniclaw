@@ -23,10 +23,10 @@ import {
 } from "@miniclaw/core";
 import { WindowedContextManager } from "@miniclaw/context-windowed";
 import { SqliteStore } from "@miniclaw/memory-sqlite";
-import { sqlQuerySkill } from "@miniclaw/skills-db";
-import { searchMemorySkill, writeMemorySkill } from "@miniclaw/skills-memory";
-import { createShellSkill } from "@miniclaw/skills-shell";
-import { createTodoWriteSkill, InMemoryTodoStore } from "@miniclaw/skills-todo";
+import { sqlQuerySkill } from "@miniclaw/agent-skills";
+import { searchMemorySkill, writeMemorySkill } from "@miniclaw/agent-skills";
+import { createShellSkill } from "@miniclaw/agent-skills";
+import { createTodoWriteSkill, InMemoryTodoStore } from "@miniclaw/agent-skills";
 
 import { Agent } from "../src/index.ts";
 import {

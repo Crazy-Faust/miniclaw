@@ -1,18 +1,11 @@
 export { makeSkillCommand, type MakeSkillOpts } from "./command.ts";
+export { createSkillFolder, defaultSkillsDir, type CreateResult } from "./files.ts";
 export {
-  createSkillPackage,
-  defaultRepoRoot,
-  findRepoRoot,
-  patchCliPackageJson,
-  patchCliSkills,
-} from "./files.ts";
-export { parseParamSpec, paramToZod, type ParamSpec, type ParamType } from "./parser.ts";
-export {
-  camelize,
-  indexTsContent,
-  packageJsonContent,
-  skillTsContent,
-  testTsContent,
-  tsconfigContent,
+  skillMdContent,
+  scriptStubContent,
+  defaultScriptFileName,
+  titleCase,
   type SkillSpec,
+  type SkillScriptSpec,
+  type ScriptLanguage,
 } from "./templates.ts";
