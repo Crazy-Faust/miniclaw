@@ -3,36 +3,20 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Agent } from "@miniclaw/agent";
-import { CompactingContextManager } from "@miniclaw/context-windowed";
-import { createDreamSkill, Dreamer, formatDreamRunResult } from "@miniclaw/dreaming";
 import {
   CronScheduler,
   defaultPidPath,
   defaultSocketPath,
-  Gateway,
   readPid,
   removePid,
   startSocketDaemon,
   writePid,
 } from "@miniclaw/gateway";
 import { SqliteStore } from "@miniclaw/memory-sqlite";
-import {
-  createWikiSkills,
-  formatMaintenanceResult,
-  MemoryWikiMaintainer,
-  MemoryWikiWorker,
-  startWikiBrowserServer,
-} from "@miniclaw/memory-wiki";
-import { createSessionsSkills } from "@miniclaw/agent-skills/runtime";
-import { createCronSkills } from "@miniclaw/agent-skills/runtime";
 import { DiscordTransport } from "@miniclaw/transport-discord";
 import type { Transport } from "@miniclaw/core";
 
-import { buildLLM, buildSmallLLM } from "./llm.ts";
-import { trackLLMUsage } from "./llm-usage.ts";
-import { buildToolGuard, describeSecurityMode } from "./security.ts";
-import { loadSkills } from "./skills.ts";
+import { buildAgentStack } from "./agent-stack.ts";
 import type { Config } from "./config.ts";
 
 // Spawn the daemon child by re-entering the CLI's main entry point so its
@@ -105,91 +89,11 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
   writePid(pidPath, process.pid);
 
   const store = new SqliteStore(config.dbPath);
-  const llm = trackLLMUsage(
-    buildLLM(config),
-    store,
-    { provider: config.provider, model: config.model, role: "primary" },
-  );
-  const builtSmallLLM = buildSmallLLM(config);
-  const smallLLM = builtSmallLLM && config.smallLLM
-    ? trackLLMUsage(
-        builtSmallLLM,
-        store,
-        { provider: config.smallLLM.provider, model: config.smallLLM.model, role: "small" },
-      )
-    : undefined;
-  const toolGuard = buildToolGuard(config, smallLLM);
-  const summarizerLLM = smallLLM ?? llm;
-  const { registry, catalog: skillCatalog } = loadSkills({
-    home: config.home,
-    workspaceRoot: config.workspaceRoot,
-  });
-  const wikiMaintainer = new MemoryWikiMaintainer({
-    llm: smallLLM ?? llm,
-    queue: store,
-    wiki: store,
-  });
-  const wikiWorker = smallLLM ? new MemoryWikiWorker({ maintainer: wikiMaintainer }) : null;
-  const wikiBrowser = config.wikiBrowser.enabled
-    ? await startWikiBrowserServer({
-        wiki: store,
-        host: config.wikiBrowser.host,
-        port: config.wikiBrowser.port,
-        token: config.wikiBrowser.token,
-      })
-    : null;
-
-  // The gateway needs an agent factory — but because the SessionRegistry
-  // builds a fresh ContextManager per session, we close over a function
-  // that constructs one on demand.
-  const gateway = new Gateway({
-    sessions: store,
-    conversations: store,
-    agentFor: (session) => {
-      const context = new CompactingContextManager({
-        memory: store,
-        conversations: store,
-        conversationId: session.conversationId,
-        summarizer: summarizerLLM,
-        knowledge: store,
-        workspaceRoot: config.workspaceRoot,
-        extraSystemPrompt: skillCatalog,
-      });
-      return new Agent({
-        llm,
-        registry,
-        context,
-        memory: store,
-        audit: store,
-        dbPath: config.dbPath,
-        channel: session.channel,
-        sessionId: session.id,
-        conversationId: session.conversationId,
-        workspaceRoot: config.workspaceRoot,
-        toolGuard,
-      });
-    },
-  });
-  for (const sk of createSessionsSkills(gateway)) {
-    if (!registry.has(sk.name)) registry.register(sk);
-  }
-  for (const sk of createCronSkills(store)) {
-    if (!registry.has(sk.name)) registry.register(sk);
-  }
-  for (const sk of createWikiSkills({ wiki: store, maintainer: wikiMaintainer })) {
-    if (!registry.has(sk.name)) registry.register(sk);
-  }
-  const dreamer = new Dreamer({
-    llm: summarizerLLM,
-    conversations: store,
-    memory: store,
-    audit: store,
-    registry,
-    dbPath: config.dbPath,
-    workspaceRoot: config.workspaceRoot,
-    toolGuard,
-  });
-  if (!registry.has("dream")) registry.register(createDreamSkill(dreamer));
+  // Everything agent-side (LLMs, skills, gateway, wiki worker/browser, dreamer,
+  // controls) comes from the shared builder; the daemon only adds transports,
+  // the cron scheduler, the socket server, and signal handling.
+  const stack = await buildAgentStack(config, store, { oneShot: false });
+  const { gateway, wikiWorker, wikiBrowser } = stack;
 
   const transports: Transport[] = [];
   const discordToken = process.env.MINICLAW_DISCORD_TOKEN;
@@ -230,30 +134,10 @@ async function runForeground(config: Config, socketPath: string, pidPath: string
   const handle = startSocketDaemon({
     gateway,
     socketPath,
-    controls: {
-      status: (sessionId, channel, conversationId) => ({
-        provider: config.provider,
-        model: config.model,
-        smallModel: config.smallLLM
-          ? `${config.smallLLM.provider}/${config.smallLLM.model}`
-          : `(primary ${config.provider}/${config.model})`,
-        store: config.dbPath,
-        session: sessionId,
-        channel,
-        conversation: String(conversationId),
-        workspace: config.workspaceRoot,
-        security: describeSecurityMode(config),
-        wikiBrowser: wikiBrowser?.url ?? "(disabled)",
-        skills: String(registry.list().length),
-      }),
-      usage: () => store.auditUsage(),
-      dream: async () => formatDreamRunResult(await dreamer.run()),
-      wikiMaintain: async () => formatMaintenanceResult(await wikiMaintainer.drain()),
-    },
+    controls: stack.controls,
     onShutdown: async () => {
       cron.stop();
-      wikiWorker?.stop();
-      await wikiBrowser?.stop();
+      await stack.close();
       for (const t of transports) {
         try { await t.stop(); } catch { /* shutdown is best-effort */ }
       }

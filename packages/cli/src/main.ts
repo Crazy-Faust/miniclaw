@@ -4,18 +4,6 @@
 // the CLI from packages/cli/.
 import "./env.ts";
 
-import { Agent } from "@miniclaw/agent";
-import { StatelessContextManager } from "@miniclaw/context-stateless";
-import { CompactingContextManager } from "@miniclaw/context-windowed";
-import { createDreamSkill, Dreamer, formatDreamRunResult } from "@miniclaw/dreaming";
-import type {
-  AuditSink,
-  ContextManager,
-  ConversationStore,
-  MemoryStore,
-  SessionStore,
-  CronStore,
-} from "@miniclaw/core";
 import {
   exitCommand,
   Harness,
@@ -31,43 +19,20 @@ import {
 } from "@miniclaw/harness";
 import { InMemoryStore } from "@miniclaw/memory-inmemory";
 import { SqliteStore } from "@miniclaw/memory-sqlite";
-import {
-  createWikiSkills,
-  formatMaintenanceResult,
-  MemoryWikiMaintainer,
-  MemoryWikiWorker,
-  startWikiBrowserServer,
-  type WikiBrowserHandle,
-} from "@miniclaw/memory-wiki";
-import { createSessionsSkills } from "@miniclaw/agent-skills/runtime";
-import { createCronSkills } from "@miniclaw/agent-skills/runtime";
-import { Gateway } from "@miniclaw/gateway";
 
 import { parseArgs, USAGE, type Mode } from "./argv.ts";
+import { buildAgentStack } from "./agent-stack.ts";
 import { loadConfig, type Config } from "./config.ts";
 import { createOneShotIO, createReadlineIO } from "./io.ts";
-import { buildLLM, buildSmallLLM } from "./llm.ts";
-import { trackLLMUsage } from "./llm-usage.ts";
-import { buildToolGuard, describeSecurityMode } from "./security.ts";
 import { makeSkillCommand } from "./make-skill/index.ts";
-import { loadSkills } from "./skills.ts";
 import { runDaemon } from "./daemon.ts";
 import { runClient } from "./chat.ts";
 import { runInstall } from "./install.ts";
 
-interface Closeable { close(): void; }
-
-interface AuditUsageRollup {
-  total: number;
-  ok: number;
-  failed: number;
-  bySkill: Array<{ skill: string; count: number }>;
-}
-interface WithUsage { auditUsage(sinceMs?: number): AuditUsageRollup; }
-
-// main() dispatches on the mode produced by argv. Each branch keeps its
-// own dependency graph small and explicit; the shared "build agent + run
-// REPL" path stays in runRepl/runOneShot.
+// main() dispatches on the mode produced by argv. Normal launches attach to
+// an (auto-started) daemon via runClient; --ephemeral/--stateless drop into
+// the in-process bypass (runAgent), which shares buildAgentStack with the
+// daemon.
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
   const parsed = parseArgs(argv);
   const mode = parsed.mode;
@@ -110,159 +75,59 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   }
 }
 
+// The in-process bypass: a deliberately reduced "throwaway" agent with no
+// daemon, cron, or transports. It shares the whole agent/skill/gateway stack
+// with the daemon via buildAgentStack and only adds the local readline
+// Harness (all nine slash commands) on top.
 async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, config: Config): Promise<void> {
   const oneShot = mode.kind === "one-shot";
-  const ephemeral = mode.ephemeral;
-  const stateless = mode.stateless;
+  const store = mode.ephemeral ? new InMemoryStore() : new SqliteStore(config.dbPath);
 
-  const store: MemoryStore & ConversationStore & AuditSink & SessionStore & CronStore & WithUsage & Closeable =
-    ephemeral ? new InMemoryStore() : new SqliteStore(config.dbPath);
-  const wikiStore = store instanceof SqliteStore ? store : null;
-
-  const convId = store.newConversation();
-  const { registry, catalog: skillCatalog, skills: agentSkillList } = loadSkills({
-    home: config.home,
-    workspaceRoot: config.workspaceRoot,
-  });
-  const llm = trackLLMUsage(
-    buildLLM(config),
-    wikiStore ?? undefined,
-    { provider: config.provider, model: config.model, role: "primary" },
-  );
-  const builtSmallLLM = buildSmallLLM(config);
-  const smallLLM = builtSmallLLM && config.smallLLM
-    ? trackLLMUsage(
-        builtSmallLLM,
-        wikiStore ?? undefined,
-        { provider: config.smallLLM.provider, model: config.smallLLM.model, role: "small" },
-      )
-    : undefined;
-  const toolGuard = buildToolGuard(config, smallLLM);
-  const summarizerLLM = smallLLM ?? llm;
-  const wikiMaintainer = wikiStore
-    ? new MemoryWikiMaintainer({
-        llm: smallLLM ?? llm,
-        queue: wikiStore,
-        wiki: wikiStore,
-      })
-    : null;
-  const wikiWorker = wikiMaintainer && smallLLM && !oneShot
-    ? new MemoryWikiWorker({ maintainer: wikiMaintainer })
-    : null;
-  const wikiBrowser: WikiBrowserHandle | null = wikiStore && config.wikiBrowser.enabled && !oneShot
-    ? await startWikiBrowserServer({
-        wiki: wikiStore,
-        host: config.wikiBrowser.host,
-        port: config.wikiBrowser.port,
-        token: config.wikiBrowser.token,
-      })
-    : null;
-
-  const context: ContextManager = stateless
-    ? new StatelessContextManager({ extraSystemPrompt: skillCatalog })
-    : new CompactingContextManager({
-        memory: store,
-        conversations: store,
-        conversationId: convId,
-        summarizer: summarizerLLM,
-        knowledge: wikiStore ?? undefined,
-        workspaceRoot: config.workspaceRoot,
-        extraSystemPrompt: skillCatalog,
-      });
-
-  const oneShotIO = oneShot;
-  const io: IOAdapter = oneShotIO
+  const io: IOAdapter = oneShot
     ? createOneShotIO(mode.kind === "one-shot" ? mode.prompt : "")
     : createReadlineIO();
 
-  const agent = new Agent({
-    llm,
-    registry,
-    context,
-    memory: store,
-    audit: store,
-    dbPath: ephemeral ? ":memory:" : config.dbPath,
-    channel: "cli",
-    conversationId: convId,
-    workspaceRoot: config.workspaceRoot,
-    toolGuard,
-    confirmTool: io.confirm
-      ? async (call, skill) => {
-          const argStr = JSON.stringify(call.args);
-          const argShort = argStr.length > 120 ? argStr.slice(0, 119) + "…" : argStr;
-          return io.confirm!(`approve ${skill.name}(${argShort})? [y/N] `);
-        }
-      : undefined,
-  });
+  // In-process confirmation is answered through the readline IO. (Over the
+  // socket it is a per-turn hook instead — see the daemon path.)
+  const confirmTool = io.confirm
+    ? async (
+        call: { name: string; args: unknown },
+        skill: { name: string; description: string },
+      ): Promise<boolean> => {
+        const argStr = JSON.stringify(call.args);
+        const argShort = argStr.length > 120 ? argStr.slice(0, 119) + "…" : argStr;
+        return io.confirm!(`approve ${skill.name}(${argShort})? [y/N] `);
+      }
+    : undefined;
 
-  // Wire the gateway so sessions_* skills can see the current channel
-  // alongside any cron-spawned sessions. The REPL itself runs on the
-  // "cli" channel.
-  const gateway = new Gateway({
-    sessions: store,
-    conversations: store,
-    agentFor: () => agent,
+  const stack = await buildAgentStack(config, store, {
+    oneShot,
+    stateless: mode.stateless,
+    confirmTool,
   });
-  gateway.attach("cli");
-  for (const sk of createSessionsSkills(gateway)) {
-    registry.register(sk);
-  }
-  for (const sk of createCronSkills(store)) {
-    registry.register(sk);
-  }
-  if (wikiStore) {
-    for (const sk of createWikiSkills({ wiki: wikiStore, maintainer: wikiMaintainer ?? undefined })) {
-      registry.register(sk);
-    }
-  }
-  const dreamer = new Dreamer({
-    llm: summarizerLLM,
-    conversations: store,
-    memory: store,
-    audit: store,
-    registry,
-    dbPath: ephemeral ? ":memory:" : config.dbPath,
-    channel: "cli",
-    workspaceRoot: config.workspaceRoot,
-    toolGuard,
-  });
-  registry.register(createDreamSkill(dreamer));
+  const { gateway, registry, controls: socket, agentFor, wikiWorker, wikiBrowser, agentSkillList } = stack;
 
+  // The bypass talks to a single "cli" session: build its agent once and
+  // adapt the socket-shaped controls to the harness SessionControls.
+  const cli = gateway.attach("cli");
+  const agent = agentFor(cli.record);
   const controls: SessionControls = {
-    status: () => ({
-      provider: config.provider,
-      model: config.model,
-      smallModel: config.smallLLM
-        ? `${config.smallLLM.provider}/${config.smallLLM.model}`
-        : `(primary ${config.provider}/${config.model})`,
-      store: ephemeral ? "(ephemeral)" : config.dbPath,
-      conversation: String(convId),
-      workspace: config.workspaceRoot,
-      security: describeSecurityMode(config),
-      wikiBrowser: wikiBrowser?.url ?? "(disabled)",
-      skills: String(registry.list().length),
-    }),
-    dream: async () => {
-      const result = await dreamer.run();
-      return formatDreamRunResult(result);
-    },
-    wikiMaintain: async () => {
-      if (!wikiMaintainer) return "(wiki maintenance is only available with SQLite storage)";
-      return formatMaintenanceResult(await wikiMaintainer.drain());
-    },
-    usage: () => store.auditUsage(),
+    status: () => socket.status(cli.record.id, "cli", cli.record.conversationId),
+    dream: () => socket.dream!(),
+    wikiMaintain: () => socket.wikiMaintain!(),
+    usage: () => socket.usage(),
   };
 
-  const banner = oneShotIO
+  const banner = oneShot
     ? undefined
     : (
         `(in-process mode — no daemon, cron/transports unavailable)\n` +
-        `${stateless ? "stateless context" : "compacting context"}\n` +
+        `${mode.stateless ? "stateless context" : "compacting context"}\n` +
         (wikiBrowser ? `wiki browser: ${wikiBrowser.url}\n` : "") +
         `type /help for slash commands, /exit to quit\n`
       );
 
-  const metaCommands = oneShotIO
+  const metaCommands = oneShot
     ? []
     : [
         exitCommand(),
@@ -282,8 +147,7 @@ async function runAgent(mode: Extract<Mode, { kind: "repl" | "one-shot" }>, conf
     wikiWorker?.start();
     await harness.run();
   } finally {
-    wikiWorker?.stop();
-    await wikiBrowser?.stop();
+    await stack.close();
     store.close();
   }
 }

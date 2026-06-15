@@ -122,6 +122,16 @@ export interface AgentTurnHooks {
     call: { name: string; args: unknown },
     result: { ok: boolean; output: string },
   ): Promise<void> | void;
+  /**
+   * Asked before running any skill where requiresConfirmation === true.
+   * Takes precedence over AgentDeps.confirmTool, so a per-turn caller (e.g.
+   * an attached socket client) can answer a confirmation the constructor had
+   * no UI for. Resolve true to proceed, false to deny.
+   */
+  onConfirmTool?(
+    call: { name: string; args: unknown },
+    skill: { name: string; description: string },
+  ): Promise<boolean>;
 }
 
 export interface TurnTrace {
@@ -316,14 +326,18 @@ export class Agent {
       );
     }
     if (skill.requiresConfirmation) {
-      const approved = this.deps.confirmTool
-        ? await this.deps.confirmTool(
+      // A per-turn hook (e.g. an attached socket client) wins over the
+      // constructor-time dep, so confirmation works even when the agent was
+      // built without a UI to ask.
+      const confirm = hooks?.onConfirmTool ?? this.deps.confirmTool;
+      const approved = confirm
+        ? await confirm(
             { name: call.name, args: parsed.data },
             { name: skill.name, description: skill.description },
           )
         : false; // fail closed: if there's no UI to ask, deny.
       if (!approved) {
-        const msg = this.deps.confirmTool
+        const msg = confirm
           ? "user declined this tool call"
           : "tool requires confirmation but no confirmation handler is configured";
         return await finish(skill.name, parsed.data, msg, false);

@@ -1,6 +1,7 @@
 import { socketAttachIO } from "@miniclaw/gateway";
 
 import { ensureDaemon } from "./ensure-daemon.ts";
+import { makeSkillCommand } from "./make-skill/index.ts";
 
 export interface RunClientOpts {
   /** Conversation channel to attach to. */
@@ -23,6 +24,9 @@ export async function runClient(opts: RunClientOpts): Promise<void> {
     channel: opts.channel,
     fresh: opts.fresh,
     oneShot: opts.oneShot,
+    // /make_skill scaffolds files in the local workspace the client shares
+    // with the daemon, so it runs client-side rather than over the wire.
+    localCommands: [makeSkillCommand()],
     banner: opts.oneShot === undefined
       ? `attached to daemon on ${socketPath}, channel=${opts.channel}\ntype /help for slash commands, /exit to detach\n`
       : undefined,

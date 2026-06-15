@@ -91,6 +91,27 @@ describe("Agent.requiresConfirmation", () => {
     expect(trace.toolCalls[0]!.output).toMatch(/no confirmation handler/);
   });
 
+  it("prefers the per-turn onConfirmTool hook over deps.confirmTool", async () => {
+    const depsConfirm = vi.fn(async () => true);
+    const hookConfirm = vi.fn(async () => false);
+    const trace = await buildAgent(depsConfirm).runTurn("please", { onConfirmTool: hookConfirm });
+    expect(hookConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "sensitive", args: { x: 7 } }),
+      expect.objectContaining({ name: "sensitive" }),
+    );
+    expect(depsConfirm).not.toHaveBeenCalled();
+    expect(trace.toolCalls[0]!.ok).toBe(false);
+    expect(trace.toolCalls[0]!.output).toMatch(/declined/);
+  });
+
+  it("honors onConfirmTool even when no deps.confirmTool is configured", async () => {
+    const hookConfirm = vi.fn(async () => true);
+    const trace = await buildAgent(undefined).runTurn("please", { onConfirmTool: hookConfirm });
+    expect(hookConfirm).toHaveBeenCalled();
+    expect(trace.toolCalls[0]!.ok).toBe(true);
+    expect(trace.toolCalls[0]!.output).toContain("did it with 7");
+  });
+
   it("does NOT call confirmTool for skills without requiresConfirmation", async () => {
     const benignSkill: Skill<{ y: number }> = {
       name: "benign",
