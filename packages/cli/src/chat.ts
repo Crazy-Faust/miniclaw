@@ -1,17 +1,34 @@
-import { existsSync } from "node:fs";
-import { defaultSocketPath, socketAttachIO } from "@miniclaw/gateway";
+import { socketAttachIO } from "@miniclaw/gateway";
 
-export async function runChat(channel: string): Promise<void> {
-  const socketPath = defaultSocketPath();
-  if (!existsSync(socketPath)) {
-    process.stderr.write(
-      `no daemon at ${socketPath}. Start one with: miniclaw daemon start\n`,
-    );
-    process.exit(1);
-  }
+import { ensureDaemon } from "./ensure-daemon.ts";
+import { makeSkillCommand } from "./make-skill/index.ts";
+
+export interface RunClientOpts {
+  /** Conversation channel to attach to. */
+  channel: string;
+  /** Start a fresh session instead of resuming the channel's active one. */
+  fresh: boolean;
+  /** Non-interactive: run this single prompt, print the answer, then detach. */
+  oneShot?: string;
+}
+
+/**
+ * Ensure a daemon is running, then attach to it as a client. This is the
+ * single entry path for `miniclaw` (repl), `miniclaw "prompt"` (one-shot),
+ * and `miniclaw chat`; they differ only in channel / fresh / oneShot.
+ */
+export async function runClient(opts: RunClientOpts): Promise<void> {
+  const socketPath = await ensureDaemon();
   await socketAttachIO({
     socketPath,
-    channel,
-    banner: `attached to daemon on ${socketPath}, channel=${channel}\ntype /exit to detach\n`,
+    channel: opts.channel,
+    fresh: opts.fresh,
+    oneShot: opts.oneShot,
+    // /make_skill scaffolds files in the local workspace the client shares
+    // with the daemon, so it runs client-side rather than over the wire.
+    localCommands: [makeSkillCommand()],
+    banner: opts.oneShot === undefined
+      ? `attached to daemon on ${socketPath}, channel=${opts.channel}\ntype /help for slash commands, /exit to detach\n`
+      : undefined,
   });
 }

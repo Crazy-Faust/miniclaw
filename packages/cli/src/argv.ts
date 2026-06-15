@@ -1,6 +1,6 @@
 export type Mode =
-  | { kind: "repl"; stateless: boolean; ephemeral: boolean }
-  | { kind: "one-shot"; prompt: string; stateless: boolean; ephemeral: boolean }
+  | { kind: "repl"; stateless: boolean; ephemeral: boolean; channel?: string; resume: boolean }
+  | { kind: "one-shot"; prompt: string; stateless: boolean; ephemeral: boolean; channel?: string; resume: boolean }
   | { kind: "daemon"; action: "run" | "start" | "stop" | "status" }
   | { kind: "chat"; channel: string }
   | { kind: "install"; target: "launchd" | "systemd" }
@@ -12,18 +12,20 @@ export interface ParsedArgs {
 
 export const USAGE = `usage: miniclaw [subcommand|flags|prompt]
 
-interactive / one-shot:
-  miniclaw                              REPL (default)
-  miniclaw "what is 2+2?"               one-shot, exit when done
-  miniclaw --stateless                  no history / no retrieval
-  miniclaw --ephemeral                  no disk persistence
+interactive / one-shot (auto-start a daemon and attach to it):
+  miniclaw                              REPL — spawns a daemon if none is running
+  miniclaw "what is 2+2?"               one-shot, then exit (daemon stays up)
+  miniclaw --channel <name>             attach on a named channel (default: cli)
+  miniclaw --resume                     resume the channel's session, not a fresh one
+  miniclaw --stateless                  in-process bypass: no history / retrieval, no daemon
+  miniclaw --ephemeral                  in-process bypass: no disk persistence, no daemon
 
-daemon mode (Phase 1):
+daemon:
+  miniclaw chat [--channel <name>]      attach to the daemon (resumes the channel)
   miniclaw daemon run                   run the gateway in the foreground
   miniclaw daemon start                 fork into the background
   miniclaw daemon stop                  stop a running daemon
   miniclaw daemon status                "running" / "not running"
-  miniclaw chat [--channel <name>]      attach to a running daemon
   miniclaw install launchd|systemd      write a service file (not loaded)
 
 env vars:
@@ -48,6 +50,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let stateless = false;
   let ephemeral = false;
   let help = false;
+  let resume = false;
   let channel: string | null = null;
 
   for (let i = 0; i < argv.length; i++) {
@@ -55,6 +58,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     if (a === "--") continue;
     else if (a === "--stateless") stateless = true;
     else if (a === "--ephemeral") ephemeral = true;
+    else if (a === "--resume") resume = true;
     else if (a === "--help" || a === "-h") help = true;
     else if (a === "--channel") {
       channel = argv[++i] ?? null;
@@ -94,9 +98,11 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         prompt: positionals.join(" "),
         stateless,
         ephemeral,
+        channel: channel ?? undefined,
+        resume,
       },
     };
   }
 
-  return { mode: { kind: "repl", stateless, ephemeral } };
+  return { mode: { kind: "repl", stateless, ephemeral, channel: channel ?? undefined, resume } };
 }

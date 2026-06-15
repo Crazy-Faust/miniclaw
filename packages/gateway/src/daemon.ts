@@ -1,6 +1,7 @@
 import { createServer, type Server, type Socket } from "node:net";
 import { chmodSync, existsSync, rmSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { randomUUID } from "node:crypto";
 import type { Gateway } from "./gateway.ts";
 
 export interface SocketDaemonControls {
@@ -17,6 +18,15 @@ export interface SocketDaemonControls {
   wikiMaintain?(): Promise<string> | string;
   /** Run a manual dream pass. */
   dream?(): Promise<string> | string;
+  /** Registered tools + discovered SKILL.md skills (for /skills). */
+  skills?(): {
+    tools: Array<{ name: string; description: string }>;
+    skills: Array<{ name: string; description: string; scope?: string }>;
+  };
+  /** Recent memories, newest first (for /memories [N]). */
+  memories?(n: number): {
+    rows: Array<{ id: number; kind: string; content: string }>;
+  };
 }
 
 export interface SocketDaemonOpts {
@@ -36,10 +46,16 @@ export interface SocketDaemonHandle {
 
 /**
  * Open a Unix-domain socket. Each client speaks JSON-Lines. The very
- * first message must be { "type": "attach", "channel": "..." }. After
- * that the server accepts:
+ * first message must be { "type": "attach", "channel": "...", "fresh"?: bool }
+ * — fresh:true spawns a new session, otherwise the channel's active session
+ * is resumed. After that the server accepts:
  *
  *   { type: "user",  text: "..." }      -> run one agent turn
+ *   { type: "status" | "usage" | "wiki_maintain" | "dream" }  -> control reply
+ *   { type: "skills" }                  -> list tools + SKILL.md skills
+ *   { type: "memories", n? }            -> recent memories
+ *   { type: "reset" }                   -> end the session, spawn a fresh one
+ *   { type: "confirm_reply", id, approved } -> answer a confirmation request
  *   { type: "end" }                     -> end the session and disconnect
  *
  * The server emits, for each turn:
@@ -47,6 +63,7 @@ export interface SocketDaemonHandle {
  *   { type: "token", delta }            (streaming providers)
  *   { type: "tool",  name, args }
  *   { type: "tool_result", name, ok, output }
+ *   { type: "confirm", id, name, args, description }  (asks the client to approve)
  *   { type: "final", text }
  *   { type: "error", message }
  */
@@ -80,6 +97,9 @@ function handleClient(socket: Socket, gateway: Gateway, controls?: SocketDaemonC
   let buffer = "";
   let session: ReturnType<Gateway["attach"]> | null = null;
   let channel = "";
+  // Tool-confirmation requests awaiting a confirm_reply, keyed by the id we
+  // sent the client. Tool calls run sequentially, so at most one is pending.
+  const pending = new Map<string, (approved: boolean) => void>();
 
   const send = (event: Record<string, unknown>): void => {
     if (socket.writable) socket.write(JSON.stringify(event) + "\n");
@@ -115,7 +135,9 @@ function handleClient(socket: Socket, gateway: Gateway, controls?: SocketDaemonC
         return;
       }
       channel = ch;
-      session = gateway.attach(channel);
+      // fresh:true forces a new session (gateway.spawn ends any active one on
+      // the channel); the default find-or-create resumes it (gateway.attach).
+      session = msg.fresh ? gateway.spawn(channel) : gateway.attach(channel);
       send({ type: "attached", sessionId: session.record.id, channel });
       return;
     }
@@ -136,6 +158,14 @@ function handleClient(socket: Socket, gateway: Gateway, controls?: SocketDaemonC
           onTool: (name, args) => send({ type: "tool", name, args }),
           onPostToolUse: (call, result) =>
             send({ type: "tool_result", name: call.name, ok: result.ok, output: result.output }),
+          // Bridge a requiresConfirmation skill to the attached client: ask,
+          // then block the tool call until the matching confirm_reply lands.
+          onConfirmTool: (call, skill) =>
+            new Promise<boolean>((resolve) => {
+              const id = randomUUID();
+              pending.set(id, resolve);
+              send({ type: "confirm", id, name: call.name, args: call.args, description: skill.description });
+            }),
         });
         send({ type: "final", text: trace.finalText });
       } catch (err) {
@@ -178,6 +208,38 @@ function handleClient(socket: Socket, gateway: Gateway, controls?: SocketDaemonC
         send({ type: "dream", text });
       } catch (err) {
         send({ type: "error", message: (err as Error).message });
+      }
+      return;
+    }
+    if (type === "skills") {
+      if (!controls?.skills) {
+        send({ type: "error", message: "skills listing is not configured" });
+        return;
+      }
+      send({ type: "skills", ...controls.skills() });
+      return;
+    }
+    if (type === "memories") {
+      if (!controls?.memories) {
+        send({ type: "error", message: "memories listing is not configured" });
+        return;
+      }
+      const n = typeof msg.n === "number" && msg.n > 0 ? Math.floor(msg.n) : 10;
+      send({ type: "memories", ...controls.memories(n) });
+      return;
+    }
+    if (type === "reset") {
+      gateway.end(session.record.id);
+      session = gateway.spawn(channel);
+      send({ type: "reset", sessionId: session.record.id });
+      return;
+    }
+    if (type === "confirm_reply") {
+      const id = String(msg.id ?? "");
+      const resolver = pending.get(id);
+      if (resolver) {
+        pending.delete(id);
+        resolver(Boolean(msg.approved));
       }
       return;
     }

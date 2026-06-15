@@ -10,8 +10,9 @@ export {
   startSocketDaemon,
   type SocketDaemonOpts,
   type SocketDaemonHandle,
+  type SocketDaemonControls,
 } from "./daemon.ts";
-export { socketAttachIO } from "./attach.ts";
+export { socketAttachIO, type SocketAttachOpts } from "./attach.ts";
 export {
   defaultSocketPath,
   defaultPidPath,
