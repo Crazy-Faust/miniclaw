@@ -110,153 +110,132 @@
 </section>
 
 <!-- ============================================================ -->
-<!-- PAGE 2 - Approach                                             -->
+<!-- PAGE 2 - Architecture and context                              -->
 <!-- ============================================================ -->
 <section class="page page-two">
   <div class="page-mark">02</div>
 
   <header class="section-header">
     <div>
-      <div class="eyebrow">Approach</div>
-      <h1>The core loop</h1>
+      <div class="eyebrow">Architecture / How it Works</div>
+      <h1>Context, wiki memory, and runtime design</h1>
     </div>
     <div class="group-chip">Group 44</div>
   </header>
 
-  <main class="architecture-layout">
-    <section class="architecture-stage">
-      <svg viewBox="0 0 1300 1080" role="img" aria-label="miniclaw architecture diagram">
-        <defs>
-          <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto">
-            <path d="M 1 1 L 11 6 L 1 11 Z" fill="#173f5f" />
-          </marker>
-          <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
-            <feDropShadow dx="0" dy="8" stdDeviation="6" flood-color="#102331" flood-opacity="0.14" />
-          </filter>
-        </defs>
-
-        <rect x="34" y="35" width="1232" height="1010" rx="22" class="blueprint" />
-        <rect x="65" y="96" width="312" height="872" rx="18" class="lane lane-a" />
-        <rect x="405" y="96" width="300" height="872" rx="18" class="lane lane-b" />
-        <rect x="735" y="96" width="300" height="872" rx="18" class="lane lane-c" />
-        <rect x="1065" y="96" width="170" height="872" rx="18" class="lane lane-d" />
-
-        <g class="flow-labels">
-          <text x="221" y="135">INPUTS</text>
-          <text x="555" y="135">AGENT LOOP</text>
-          <text x="885" y="135">POLICY + SKILLS / TOOLS</text>
-          <text x="1150" y="135">OUTPUT</text>
-        </g>
-
-        <g class="arch-node input" transform="translate(88 220)" filter="url(#softShadow)">
-          <rect width="266" height="162" rx="14" />
-          <text x="133" y="52" class="node-title">Plain message</text>
-          <text x="133" y="94" class="node-copy">"Remember this"</text>
-          <text x="133" y="126" class="node-copy">"Check the repo"</text>
-        </g>
-
-        <g class="arch-node trigger" transform="translate(88 525)" filter="url(#softShadow)">
-          <rect width="266" height="142" rx="14" />
-          <text x="133" y="50" class="node-title">Scheduled job</text>
-          <text x="133" y="90" class="node-copy">cron wakes session</text>
-        </g>
-
-        <path class="flow-arrow" d="M354 301 H420" />
-        <path class="flow-arrow" d="M354 596 C386 596 390 430 420 395" />
-
-        <g class="arch-node core" transform="translate(420 230)" filter="url(#softShadow)">
-          <rect width="260" height="228" rx="16" />
-          <text x="130" y="55" class="node-title">Agent turn</text>
-          <text x="130" y="101" class="node-copy">build context</text>
-          <text x="130" y="136" class="node-copy">ask provider</text>
-          <text x="130" y="171" class="node-copy">route tool call</text>
-        </g>
-
-        <path class="flow-arrow" d="M680 344 H764" />
-
-        <g class="arch-node guard" transform="translate(764 230)" filter="url(#softShadow)">
-          <rect width="260" height="228" rx="16" />
-          <text x="130" y="55" class="node-title">Policy gate</text>
-          <text x="130" y="101" class="node-copy">workspace sandbox</text>
-          <text x="130" y="136" class="node-copy">allowlist + timeout</text>
-          <text x="130" y="171" class="node-copy">confirm risky actions</text>
-        </g>
-
-        <path class="flow-arrow" d="M1024 344 H1090" />
-
-        <g class="arch-node output" transform="translate(1090 255)" filter="url(#softShadow)">
-          <rect width="120" height="178" rx="14" />
-          <text x="60" y="77" class="node-title">Reply</text>
-          <text x="60" y="118" class="node-copy">with trace</text>
-        </g>
-
-        <path class="flow-arrow down" d="M550 458 V585" />
-        <path class="flow-arrow down" d="M894 458 V585" />
-        <path class="agent-cycle-arrow" d="M680 585 C724 548 710 480 680 430" />
-
-        <g class="arch-node support" transform="translate(420 585)" filter="url(#softShadow)">
-          <rect width="260" height="218" rx="16" />
-          <text x="130" y="50" class="node-title">Memory</text>
-          <text x="130" y="91" class="node-copy">SQLite durable</text>
-          <text x="130" y="126" class="node-copy">in-memory ephemeral</text>
-          <text x="130" y="161" class="node-copy">vector retrieval</text>
-          <text x="130" y="196" class="node-copy">same interface</text>
-        </g>
-
-        <g class="arch-node skills" transform="translate(764 585)" filter="url(#softShadow)">
-          <rect width="260" height="218" rx="16" />
-          <text x="130" y="50" class="node-title">Skills / Tools</text>
-          <text x="130" y="91" class="node-copy">shell, fs, web</text>
-          <text x="130" y="126" class="node-copy">browser, todo</text>
-          <text x="130" y="161" class="node-copy">sessions, cron</text>
-          <text x="130" y="196" class="node-copy">tool adapters</text>
-        </g>
-
-        <path class="loop-arrow" d="M764 585 C724 548 710 480 680 430" />
-
-        <g class="audit-badge" transform="translate(205 875)">
-          <rect width="890" height="78" rx="39" />
-          <text x="445" y="49">audit first: log the tool call before the model sees the result</text>
-        </g>
-      </svg>
+  <main class="architecture-deep-layout">
+    <section class="system-map">
+      <div class="map-title">
+        <h2>Dependency Tree</h2>
+        <p>Core defines contracts. The CLI composes a concrete runtime from selected implementations.</p>
+      </div>
+      <div class="dependency-tree" aria-label="miniclaw dependency tree">
+        <svg class="tree-lines" viewBox="0 0 760 500" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M380 128 L142 218" />
+          <path d="M380 128 L380 218" />
+          <path d="M380 128 L598 218" />
+          <path d="M520 128 C650 145 724 185 736 275" />
+          <path d="M142 338 L380 395" />
+          <path d="M380 338 L380 395" />
+          <path d="M618 338 L380 395" />
+          <path d="M736 275 C725 365 590 402 380 395" />
+        </svg>
+        <div class="tree-node tree-daemon">
+          <b>Daemon / CLI Stack</b>
+          <span>buildAgentStack() composes the running agent</span>
+        </div>
+        <div class="tree-node tree-agent">
+          <b>SQLite Memory</b>
+          <span>durable conversations, memories, audit, wiki tables</span>
+        </div>
+        <div class="tree-node tree-context">
+          <b>OpenAI Provider</b>
+          <span>implements LLMProvider with native tool calls</span>
+        </div>
+        <div class="tree-node tree-skills">
+          <b>Anthropic Provider</b>
+          <span>implements LLMProvider with tool-use mapping</span>
+        </div>
+        <div class="tree-more">...</div>
+        <div class="tree-node tree-core">
+          <b>@miniclaw/core</b>
+          <span>shared contracts: Skill, LLMProvider, ContextManager, MemoryStore, KnowledgeStore</span>
+        </div>
+      </div>
+      <div class="interface-strip">
+        <article>
+          <b>Composition root</b>
+          <span><code>buildAgentStack()</code> chooses concrete providers, stores, context managers, and skills for one runtime.</span>
+        </article>
+        <article>
+          <b>Replaceable parts</b>
+          <span>SQLite memory, OpenAI, Anthropic, and other adapters plug in behind the same core interfaces.</span>
+        </article>
+        <article>
+          <b>Stable contracts</b>
+          <span><code>@miniclaw/core</code> keeps the agent loop independent from provider APIs and persistence details.</span>
+        </article>
+      </div>
     </section>
 
-    <aside class="decision-stack">
-      <h2>Key Design Decisions</h2>
-      <article>
-        <span class="num">1</span>
-        <div>
-          <h3>Model routes tools</h3>
-          <p>No custom classifier: tool specs, schemas, system prompt, and history are sent to the provider each round.</p>
-        </div>
-      </article>
-      <article>
-        <span class="num">2</span>
-        <div>
-          <h3>Memory is layered</h3>
-          <p>Long-term memories are separate from per-session turn history, then merged by the context manager.</p>
-        </div>
-      </article>
-      <article>
-        <span class="num">3</span>
-        <div>
-          <h3>Skills are contracts</h3>
-          <p>A skill is name, description, Zod parameters, optional confirmation, and execute(args, ctx).</p>
-        </div>
-      </article>
-      <article>
-        <span class="num">4</span>
-        <div>
-          <h3>Sandbox at boundaries</h3>
-          <p>Security is per skill/tool: filesystem, shell, SQL, web, and confirmations each enforce their own guard.</p>
-        </div>
-      </article>
-    </aside>
+    <section class="context-map">
+      <h2>How Skills Work</h2>
+      <div class="context-flow">
+        <article>
+          <span>01</span>
+          <b>AgentSkills format</b>
+          <p>Capabilities are described with <code>SKILL.md</code> files following the AgentSkills standard.</p>
+        </article>
+        <article>
+          <span>02</span>
+          <b>Catalog injection</b>
+          <p>The runtime discovers skills and injects a compact catalog of names and descriptions into the prompt.</p>
+        </article>
+        <article>
+          <span>03</span>
+          <b>Model chooses</b>
+          <p>The LLM selects a skill when the user's request matches a described capability.</p>
+        </article>
+        <article>
+          <span>04</span>
+          <b>Guarded execution</b>
+          <p><code>use_skill</code> and <code>run_skill_script</code> execute through typed args, workspace limits, and audit logging.</p>
+        </article>
+      </div>
+      <div class="context-callout">
+        <strong>Extensible tools</strong>
+        <span>New behavior is added by adding a skill package, not by changing the agent loop itself.</span>
+      </div>
+    </section>
+
+    <section class="wiki-map">
+      <h2>LLM Wiki Memory</h2>
+      <div class="wiki-board" aria-label="LLM wiki memory architecture">
+        <article class="wiki-zone raw">
+          <b>Memory sources</b>
+          <p><code>write_memory</code> stores new facts, notes, and observations as source material.</p>
+        </article>
+        <article class="wiki-zone maintainer">
+          <b>Small model manager</b>
+          <p>A smaller LLM organizes memories into wiki pages, links related pages, and keeps source rows traceable.</p>
+        </article>
+        <article class="wiki-zone pages">
+          <b>Prompt index</b>
+          <p>Only a compact index of relevant wiki pages is injected into the prompt, not the whole memory.</p>
+        </article>
+        <div class="wiki-arrow arrow-one"></div>
+        <div class="wiki-arrow arrow-two"></div>
+      </div>
+      <div class="wiki-note">
+        <strong>Explorable memory</strong>
+        <span>Based on the injected index, the model can decide when to call <code>wiki_read</code> or <code>search_memory</code> and inspect the memory in more detail.</span>
+      </div>
+    </section>
   </main>
 
   <footer class="footer">
-    <span>Page 2 / 3 - Architecture</span>
-    <span>Intent routing, memory, skill boundaries, security, proactivity</span>
+    <span>Page 2 / 3 - Architecture and context</span>
+    <span>Core packages, windowed context, and the SQLite-native LLM wiki</span>
   </footer>
 </section>
 
@@ -283,30 +262,32 @@
           <li><code>WindowedContextManager</code> tells the model when to use memory tools.</li>
           <li><code>SkillRegistry.toolSpecs()</code> converts Zod schemas to provider tool specs.</li>
           <li>OpenAI, Anthropic, and Gemini adapters expose native tool/function APIs.</li>
-          <li>Multi-step chains run through the same loop, capped by <code>MAX_ROUNDS = 6</code>.</li>
+          <li>Multi-step chains run through the same agent loop with tool results fed back to the model.</li>
         </ul>
       </article>
 
       <article class="evidence-card">
-        <h2>Skill interface</h2>
-        <p>Adding a capability means exporting one object, then registering it once. The context carries memory, audit, DB path, channel, workspace root, and streaming output.</p>
+        <h2>AgentSkills</h2>
+        <p>Skills follow the AgentSkills idea: a capability is documented, discoverable, and callable without changing the agent loop.</p>
         <ul>
-          <li><code>name</code>, <code>description</code></li>
-          <li><code>parameters</code>: Zod schema</li>
-          <li><code>requiresConfirmation?</code></li>
-          <li><code>execute(args, ctx)</code></li>
-          <li>Dispatch validates args, confirms risky skills, executes, audits, returns result.</li>
+          <li><code>SKILL.md</code> describes when and how the skill should be used.</li>
+          <li>The runtime discovers skills and injects a compact catalog into the prompt.</li>
+          <li><code>use_skill</code> activates a skill; <code>run_skill_script</code> runs packaged handlers.</li>
+          <li>Built-ins cover filesystem, shell, web, database, memory, cron, sessions, todo, browser, and canvas.</li>
+          <li>Execution still goes through typed args, confirmations, workspace limits, and audit logging.</li>
         </ul>
       </article>
 
       <article class="evidence-card dark">
         <h2>Security model</h2>
-        <p>Sandboxing is application-level and workspace-root based.</p>
+        <p>Sandboxing is application-level: commands and file operations are constrained to the configured workspace directory.</p>
         <ul>
           <li><code>MINICLAW_WORKSPACE</code>, default <code>process.cwd()</code></li>
+          <li>Tool execution is sandboxed to the project directory instead of arbitrary machine access.</li>
           <li>Filesystem rejects escapes, NUL bytes, and outside symlinks.</li>
           <li>Writes and patches require confirmation and temp-file-plus-rename.</li>
           <li>Shell uses argv, <code>shell:false</code>, allowlisted binaries, and guarded path args.</li>
+          <li>Optional high-security mode asks a small LLM to compare proposed tool calls with the initial prompt and flag malicious intent.</li>
           <li>Rejected shell syntax includes backticks, <code>$</code>, <code>$(</code>, <code>||</code>, and <code>&amp;&amp;</code>.</li>
           <li>Web uses domain/private-host checks; SQL allows single <code>SELECT/WITH</code>.</li>
         </ul>
@@ -314,14 +295,14 @@
 
       <article class="evidence-card">
         <h2>Memory management</h2>
-        <p>Two layers: long-term facts/preferences/tasks, plus conversation history per session.</p>
+        <p>Long-term memory is managed as an LLM Wiki: raw writes become source material, then a small model organizes them into readable pages.</p>
         <ul>
-          <li>Memory contract: <code>add</code>, <code>search</code>, <code>listRecent</code>.</li>
-          <li>SQLite stores memories with FTS5 search by rank.</li>
-          <li>Each turn injects up to 5 memory index entries and last 12 messages.</li>
-          <li>Messages are stored by <code>conv_id</code>; daemon channels get isolated sessions.</li>
-          <li>In-memory and vector stores exist; vector search is still experimental.</li>
-          <li>Compaction exists, but default behavior is windowing.</li>
+          <li><code>write_memory</code> stores immutable raw memory rows in SQLite.</li>
+          <li>A maintenance worker uses a smaller LLM to upsert wiki pages, add links, and mark source rows.</li>
+          <li>Automatic retrieval injects only a compact memory index into the prompt.</li>
+          <li>The model can inspect details by calling <code>wiki_read</code> or <code>search_memory</code>.</li>
+          <li>Wiki pages are readable by the user through a local web interface.</li>
+          <li>Conversation history is still isolated by <code>conv_id</code> for daemon sessions and channels.</li>
         </ul>
       </article>
 
@@ -336,26 +317,15 @@
           <li>Transport hooks can deliver <code>trace.finalText</code> back to the original channel.</li>
         </ul>
       </article>
-    </section>
 
-    <section class="bottom-row">
-      <article>
-        <strong>Opt-in / partial</strong>
+      <article class="evidence-card">
+        <h2>Dreaming support</h2>
+        <p>miniclaw also has a background reflection path: the dreaming runner can review recent activity and produce follow-up ideas.</p>
         <ul>
-          <li>Playwright browser skills require optional dependency</li>
-          <li>Discord reminders work through daemon transport</li>
-          <li>compaction and vector semantic memory are not the default path</li>
-        </ul>
-      </article>
-      <article>
-        <strong>Possible improvements</strong>
-        <ul>
-          <li>move beyond app-level sandboxing for high-risk actions</li>
-          <li>stronger prompt-injection and credential scopes</li>
-          <li>Use a small LLM to cluster, rewrite, and retire SQLite memories.</li>
-          <li>Add markdown-skills / agentskills support.</li>
-          <li>Run nightly dreaming: review recent chats and propose next actions.</li>
-          <li>Define external tool adapters before expanding the skill set.</li>
+          <li><code>@miniclaw/dreaming</code> runs outside the foreground chat turn.</li>
+          <li>It uses the same agent and memory foundations as normal turns.</li>
+          <li>It supports reflective workflows such as reviewing recent chats and proposing next actions.</li>
+          <li>Dreaming is separate from cron: cron schedules prompts; dreaming summarizes and reflects.</li>
         </ul>
       </article>
     </section>

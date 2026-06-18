@@ -246,8 +246,8 @@ function normalizeTableRow(row: string[], cellCount: number): string[] {
 }
 
 function renderHtmlTable(headers: string[], rows: string[][]): string {
-  return `<table class="usage-table"><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>` +
-    `<tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  return `<div class="usage-table-wrap"><table class="usage-table"><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>` +
+    `<tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 
 function renderFolder(
@@ -368,6 +368,19 @@ function page(title: string, body: string): string {
   table { border-collapse: collapse; width: 100%; margin: 14px 0; }
   th, td { border: 1px solid #9995; padding: 7px 9px; text-align: left; vertical-align: top; }
   th { background: #9992; font-weight: 700; }
+  .usage-table-wrap { max-width: 100%; overflow-x: auto; margin: 14px 0; border: 1px solid #9995; border-radius: 6px; }
+  .usage-table { width: max-content; min-width: 100%; margin: 0; border: 0; }
+  .usage-table th:first-child, .usage-table td:first-child { border-left: 0; }
+  .usage-table th:last-child, .usage-table td:last-child { border-right: 0; }
+  .usage-table thead:first-child th { border-top: 0; }
+  .usage-table tbody:last-child tr:last-child td { border-bottom: 0; }
+  .usage-table th, .usage-table td { white-space: nowrap; }
+  .usage-table td { max-width: 280px; overflow-wrap: anywhere; }
+  .usage-table td:nth-child(3),
+  .usage-table td:nth-child(4),
+  .usage-table td:nth-child(5),
+  .usage-table td:nth-child(7),
+  .usage-table td:nth-child(10) { white-space: normal; }
   dl { display: grid; grid-template-columns: 140px 1fr; gap: 4px 10px; }
   dt { font-weight: 700; }
   dd { margin: 0; }

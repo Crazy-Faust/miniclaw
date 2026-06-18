@@ -121,6 +121,7 @@ describe("wiki browser", () => {
       expect(usage.status).toBe(200);
       expect(usageHtml).toContain("LLM Usage");
       expect(usageHtml).toContain("Calls: 1");
+      expect(usageHtml).toContain('<div class="usage-table-wrap">');
       expect(usageHtml).toContain('<table class="usage-table">');
       expect(usageHtml).toContain("<th>Provider</th>");
       expect(usageHtml).toContain("<td>openai</td>");
