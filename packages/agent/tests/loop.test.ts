@@ -125,4 +125,33 @@ describe("Agent loop", () => {
     const trace = await agent.runTurn("loop please");
     expect(trace.finalText).toMatch(/round limit/);
   });
+
+  it("synthesizes a best-effort answer when the round limit is hit", async () => {
+    const registry = new SkillRegistry();
+    registry.register(searchMemorySkill);
+
+    const loopingTurn: AssistantTurn = {
+      kind: "tool_use",
+      text: "",
+      toolCalls: [{ id: "x", name: "search_memory", args: { query: "anything" } }],
+    };
+    // Six tool-use rounds exhaust MAX_ROUNDS; the final tool-free wrap-up call
+    // returns a best-effort answer instead of the model looping forever.
+    const wrapUp: AssistantTurn = {
+      kind: "final",
+      text: "Here is my best answer from what I gathered; I couldn't finish the search.",
+    };
+    const llm = new FakeLLM([...Array.from({ length: 6 }, () => loopingTurn), wrapUp]);
+
+    const convId = store.newConversation();
+    const context = new WindowedContextManager({
+      memory: store, conversations: store, conversationId: convId,
+    });
+    const agent = new Agent({ llm, registry, context, memory: store, audit: store, dbPath });
+
+    const trace = await agent.runTurn("loop please");
+    expect(trace.finalText).toBe(wrapUp.text);
+    expect(trace.finalText).not.toMatch(/round limit/);
+    expect(llm.calls).toBe(7); // 6 rounds + 1 tool-free wrap-up
+  });
 });
