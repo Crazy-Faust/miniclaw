@@ -205,9 +205,29 @@ export class Agent {
       working.push({ role: "tool", results });
     }
 
-    const msg = `(tool-call round limit of ${MAX_ROUNDS} exceeded)`;
-    trace.finalText = msg;
-    this.deps.context.recordAssistant(msg);
+    // Round budget exhausted without a final answer. Rather than abruptly
+    // returning an error sentinel, make one last tool-free call so the model
+    // synthesizes a best-effort answer from what it already gathered and flags
+    // whatever it couldn't finish. The sentinel stays as a fallback if even
+    // this wrap-up call fails or still tries to use tools.
+    let finalText = `(tool-call round limit of ${MAX_ROUNDS} exceeded)`;
+    const wrapUpSystem =
+      `${system}\n\nYou have reached the tool-call limit of ${MAX_ROUNDS} rounds and ` +
+      `can no longer call tools. Answer the user as best you can from the information ` +
+      `already gathered, and state clearly anything you could not complete.`;
+    try {
+      const turn = await this.chatWithRetry({
+        system: wrapUpSystem,
+        messages: working,
+        tools: [],
+        onToken: hooks?.onAssistantToken,
+      });
+      if (turn.kind === "final" && turn.text.trim()) finalText = turn.text;
+    } catch {
+      // Keep the sentinel — a failed wrap-up must not throw out of the turn.
+    }
+    trace.finalText = finalText;
+    this.deps.context.recordAssistant(finalText);
     return trace;
   }
 
